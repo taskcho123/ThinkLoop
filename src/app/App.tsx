@@ -12,10 +12,20 @@ import {
 } from "recharts";
 import { hasFirebaseConfig } from "../services/firebase";
 import { loadAppState, saveAppState } from "../services/appStateRepository";
-import { logOut, signInWithEmail, signInWithGoogle, signUpWithEmail } from "../services/authService";
+import { logOut, signInWithEmail, signInWithGoogle, signUpWithEmail, subscribeToAuthSession } from "../services/authService";
 
 // ── Types ─────────────────────────────────────────────────────────────────
-type Page = "home" | "projects" | "insight" | "insight-detail" | "dashboard" | "project-detail" | "write-reflection" | "settings";
+type Page =
+  | "home"
+  | "projects"
+  | "insight"
+  | "insight-detail"
+  | "dashboard"
+  | "project-detail"
+  | "write-reflection"
+  | "dev-record-detail"
+  | "write-dev-record"
+  | "settings";
 type ProjectStatus = "Planning" | "Progress" | "Finished";
 
 interface Reflection {
@@ -26,6 +36,13 @@ interface Reflection {
   improvement: string;
   reflection: string;
   nextGoal: string;
+}
+
+interface DevRecord {
+  id: string;
+  title: string;
+  content: string;
+  date: string;
 }
 
 interface Project {
@@ -62,18 +79,29 @@ interface AppSnapshot {
   projects: Project[];
   insights: Insight[];
   customBlogs: CustomBlog[];
+  devRecords: DevRecord[];
 }
 
 const STORAGE_KEY = "thinkloop.app.v1";
 const EMPTY_PROJECTS: Project[] = [];
 const EMPTY_INSIGHTS: Insight[] = [];
 const EMPTY_BLOGS: CustomBlog[] = [];
+const EMPTY_DEV_RECORDS: DevRecord[] = [];
 
 function todayLabel() {
   return new Date().toLocaleDateString("ko-KR", {
     year: "numeric",
     month: "long",
     day: "numeric",
+  });
+}
+
+function todayFullLabel() {
+  return new Date().toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
   });
 }
 
@@ -209,13 +237,25 @@ function allInsightDates(insights: Insight[]) {
   }));
 }
 
-function buildHeatmap(projects: Project[], insights: Insight[]) {
+function allDevRecordDates(devRecords: DevRecord[]) {
+  return devRecords.map((record) => ({
+    date: parseAppDate(record.date),
+    title: record.title,
+    text: record.content,
+  }));
+}
+
+function buildHeatmap(projects: Project[], insights: Insight[], devRecords: DevRecord[]) {
   const counts = new Map<string, number>();
   for (const item of allReflectionDates(projects)) {
     const key = dateKey(item.date);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   for (const item of allInsightDates(insights)) {
+    const key = dateKey(item.date);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const item of allDevRecordDates(devRecords)) {
     const key = dateKey(item.date);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
@@ -231,7 +271,7 @@ function buildHeatmap(projects: Project[], insights: Insight[]) {
   return data;
 }
 
-function buildMonthlyData(projects: Project[], insights: Insight[]) {
+function buildMonthlyData(projects: Project[], insights: Insight[], devRecords: DevRecord[]) {
   const months = Array.from({ length: 7 }, (_, index) => {
     const date = new Date();
     date.setMonth(date.getMonth() - (6 - index));
@@ -252,13 +292,18 @@ function buildMonthlyData(projects: Project[], insights: Insight[]) {
     const target = byMonth.get(monthKey(item.date));
     if (target) target.insights += 1;
   }
+  for (const item of allDevRecordDates(devRecords)) {
+    const target = byMonth.get(monthKey(item.date));
+    if (target) target.reflections += 1;
+  }
   return months;
 }
 
-function buildDayStreak(projects: Project[], insights: Insight[]) {
+function buildDayStreak(projects: Project[], insights: Insight[], devRecords: DevRecord[]) {
   const activeDays = new Set([
     ...allReflectionDates(projects).map((item) => dateKey(item.date)),
     ...allInsightDates(insights).map((item) => dateKey(item.date)),
+    ...allDevRecordDates(devRecords).map((item) => dateKey(item.date)),
   ]);
 
   let streak = 0;
@@ -270,7 +315,7 @@ function buildDayStreak(projects: Project[], insights: Insight[]) {
   return streak;
 }
 
-function buildRecentActivity(projects: Project[], insights: Insight[]) {
+function buildRecentActivity(projects: Project[], insights: Insight[], devRecords: DevRecord[]) {
   return [
     ...allReflectionDates(projects).map((item) => ({
       date: item.date,
@@ -286,6 +331,13 @@ function buildRecentActivity(projects: Project[], insights: Insight[]) {
       icon: BookOpen,
       typeLabel: "Insight",
     })),
+    ...allDevRecordDates(devRecords).map((item) => ({
+      date: item.date,
+      project: "자유 개발 기록",
+      text: item.title || item.text,
+      icon: Lightbulb,
+      typeLabel: "Dev Record",
+    })),
     ...projects.map((project) => ({
       date: parseAppDate(project.createdAt),
       project: null,
@@ -295,7 +347,7 @@ function buildRecentActivity(projects: Project[], insights: Insight[]) {
     })),
   ]
     .sort((a, b) => b.date.getTime() - a.date.getTime())
-    .slice(0, 8);
+    .slice(0, 3);
 }
 
 // ── Utility Components ────────────────────────────────────────────────────
@@ -503,6 +555,7 @@ function withoutSeedData(state: Partial<AppSnapshot> | null) {
     projects: hasOnlySeedProjects ? EMPTY_PROJECTS : state.projects ?? EMPTY_PROJECTS,
     insights: hasOnlySeedInsights ? EMPTY_INSIGHTS : state.insights ?? EMPTY_INSIGHTS,
     customBlogs: state.customBlogs ?? EMPTY_BLOGS,
+    devRecords: state.devRecords ?? EMPTY_DEV_RECORDS,
   };
 }
 
@@ -511,27 +564,28 @@ function HomePage({
   profile,
   projects,
   insights,
+  devRecords,
   onGoToProject,
   onGoToInsight,
   onSelectInsight,
+  onWriteDevRecord,
+  onSelectDevRecord,
 }: {
   profile: UserProfile;
   projects: Project[];
   insights: Insight[];
+  devRecords: DevRecord[];
   onGoToProject: (p: Project) => void;
   onGoToInsight: () => void;
   onSelectInsight: (insight: Insight) => void;
+  onWriteDevRecord: () => void;
+  onSelectDevRecord: (record: DevRecord) => void;
 }) {
-  const today = new Date("2024-03-17").toLocaleDateString("ko-KR", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    weekday: "long",
-  });
+  const today = todayFullLabel();
 
   const inProgressProjects = projects.filter((p) => p.status === "Progress");
-  const reflectionCount = projects.reduce((total, project) => total + project.reflections.length, 0);
-  const dayStreak = buildDayStreak(projects, insights);
+  const reflectionCount = projects.reduce((total, project) => total + project.reflections.length, 0) + devRecords.length;
+  const dayStreak = buildDayStreak(projects, insights, devRecords);
 
   return (
     <motion.div
@@ -595,42 +649,46 @@ function HomePage({
             ))}
           </div>
 
-          {/* Reflection prompt */}
+          {/* Free dev records */}
           <div className="bg-white rounded-xl border border-border p-4 sm:p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-2.5">
-              <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
-                <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
+                  <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+                </div>
+                <span className="text-sm font-semibold text-foreground">자유 개발 기록</span>
               </div>
-              <span className="text-sm font-semibold text-foreground">오늘의 회고</span>
+              <span className="text-[11px] text-muted-foreground">{devRecords.length}개</span>
             </div>
-            <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-              AI가 코딩을 도울 수 있지만, 좋은 소프트웨어의 완성은 개발자의 깊은 고민에 있습니다.
-              <br />
-              오늘 진행한 프로젝트의 회고를 기록하며 한 단계 더 성장해 보세요.
-            </p>
-            {inProgressProjects.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border px-4 py-3 text-xs text-muted-foreground">
-                진행 중인 프로젝트가 없습니다.
-              </div>
-            ) : (
-              <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
-                {inProgressProjects.map((project) => (
+            <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+              <button
+                onClick={onWriteDevRecord}
+                className="min-w-[170px] sm:min-w-[190px] aspect-[5/3] rounded-xl border border-dashed border-[#B8D9D2] bg-accent/50 p-4 text-left flex flex-col justify-end hover:bg-accent transition-colors"
+              >
+                <span className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center mb-auto">
+                  <Plus className="w-4 h-4" />
+                </span>
+                <span className="text-sm font-semibold text-foreground">작성하기</span>
+                <span className="text-[11px] text-muted-foreground mt-1">오늘의 생각을 자유롭게 남기기</span>
+              </button>
+              {devRecords.length === 0 ? (
+                <div className="min-w-[210px] sm:min-w-[230px] aspect-[5/3] rounded-xl border border-dashed border-border px-4 py-3 text-xs text-muted-foreground flex items-center">
+                  아직 작성한 개발 기록이 없습니다.
+                </div>
+              ) : (
+                devRecords.map((record) => (
                   <button
-                    key={project.id}
-                    onClick={() => onGoToProject(project)}
-                    className="min-w-[170px] sm:min-w-[190px] text-left rounded-xl border border-border bg-white p-3 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all"
+                    key={record.id}
+                    onClick={() => onSelectDevRecord(record)}
+                    className="min-w-[210px] sm:min-w-[230px] aspect-[5/3] text-left rounded-xl border border-border bg-white p-4 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all flex flex-col"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-foreground line-clamp-1">{project.name}</span>
-                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                      {project.description}
-                    </p>
+                    <span className="text-[10px] text-muted-foreground mb-2">{record.date}</span>
+                    <span className="text-sm font-semibold text-foreground line-clamp-2">{record.title}</span>
+                    <span className="text-xs text-muted-foreground leading-relaxed line-clamp-3 mt-2">{record.content}</span>
                   </button>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
 
@@ -1253,6 +1311,178 @@ function InsightDetailPage({
   );
 }
 
+// ── DEV RECORD DETAIL ────────────────────────────────────────────────────
+function DevRecordDetailPage({
+  record,
+  onBack,
+  onDelete,
+}: {
+  record: DevRecord;
+  onBack: () => void;
+  onDelete: (recordId: string) => void;
+}) {
+  const [showDelete, setShowDelete] = useState(false);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-2xl"
+    >
+      <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform duration-150" />
+          자유 개발 기록
+        </button>
+        <button
+          onClick={() => setShowDelete(true)}
+          className="w-8 h-8 rounded-full bg-white border border-rose-100 text-rose-300 shadow-sm flex items-center justify-center hover:text-rose-400 hover:border-rose-200 hover:bg-rose-50 active:scale-95 transition-all"
+          title="개발 기록 삭제"
+          aria-label={`${record.title} 삭제`}
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+
+      <article className="bg-white rounded-xl border border-border p-5 sm:p-6 shadow-sm">
+        <div className="flex items-center gap-2 mb-3">
+          <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+            {record.date}
+          </span>
+        </div>
+        <h2 className="text-xl font-bold text-foreground leading-snug mb-5" style={{ fontFamily: "var(--font-display)" }}>
+          {record.title}
+        </h2>
+        <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{record.content}</p>
+      </article>
+
+      {showDelete && (
+        <div
+          className="fixed inset-0 bg-black/15 backdrop-blur-[2px] flex items-center justify-center z-50"
+          onClick={() => setShowDelete(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4 border border-border"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="w-11 h-11 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center mb-4">
+              <Trash2 className="w-5 h-5 text-rose-300" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground mb-1" style={{ fontFamily: "var(--font-display)" }}>
+              개발 기록을 삭제할까요?
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+              <span className="font-medium text-foreground">{record.title}</span> 기록이 삭제됩니다.
+            </p>
+            <div className="flex gap-2.5">
+              <button
+                onClick={() => setShowDelete(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => onDelete(record.id)}
+                className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 transition-colors shadow-sm"
+              >
+                삭제하기
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── WRITE DEV RECORD ─────────────────────────────────────────────────────
+function WriteDevRecordPage({
+  onBack,
+  onSave,
+}: {
+  onBack: () => void;
+  onSave: (record: Pick<DevRecord, "title" | "content">) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const canSave = title.trim() && content.trim();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-2xl"
+    >
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-5 sm:mb-6 transition-colors group"
+      >
+        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform duration-150" />
+        자유 개발 기록
+      </button>
+
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-[11px] text-muted-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+            {todayFullLabel()}
+          </span>
+        </div>
+        <h2 className="text-xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+          자유 개발 기록 작성
+        </h2>
+      </div>
+
+      <div className="space-y-3">
+        <div className="bg-white rounded-xl border border-border p-4 shadow-sm">
+          <label className="text-sm font-medium text-foreground mb-3 block">제목</label>
+          <input
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="기록 제목을 입력하세요"
+            className="w-full px-3 py-2 bg-muted rounded-lg text-sm border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+          />
+        </div>
+        <NotebookArea
+          label="내용"
+          placeholder="오늘 개발하면서 남기고 싶은 생각을 자유롭게 작성하세요..."
+          icon={FileText}
+          value={content}
+          onChange={setContent}
+        />
+      </div>
+
+      <div className="flex items-center gap-3 mt-6">
+        <button
+          onClick={onBack}
+          className="px-4 sm:px-5 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+        >
+          취소
+        </button>
+        <button
+          onClick={() => {
+            if (!canSave) return;
+            onSave({ title: title.trim(), content: content.trim() });
+          }}
+          disabled={!canSave}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-[#4A7A6A] transition-colors shadow-sm shadow-[#5B8E7D]/20 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Sparkles className="w-4 h-4" />
+          저장하기
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 // ── PROJECTS ──────────────────────────────────────────────────────────────
 function ProjectsPage({
   projects,
@@ -1340,9 +1570,6 @@ function ProjectsPage({
                   {project.description}
                 </p>
 
-                <p className="text-[11px] text-muted-foreground line-clamp-1 mb-3 italic leading-relaxed">
-                  "{project.latestReflection}"
-                </p>
               </button>
 
               <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -1724,9 +1951,7 @@ function WriteReflectionPage({
   onBack: () => void;
   onSave: (reflection: Omit<Reflection, "id" | "date">) => void;
 }) {
-  const today = new Date("2024-03-17").toLocaleDateString("ko-KR", {
-    year: "numeric", month: "long", day: "numeric", weekday: "long",
-  });
+  const today = todayFullLabel();
 
   const [fields, setFields] = useState({
     aiDid: "", iDid: "", improvement: "", reflection: "", nextGoal: "",
@@ -1831,12 +2056,20 @@ function WriteReflectionPage({
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────
-function DashboardPage({ projects, insights }: { projects: Project[]; insights: Insight[] }) {
-  const reflectionCount = projects.reduce((total, project) => total + project.reflections.length, 0);
-  const heatmapData = buildHeatmap(projects, insights);
-  const monthlyData = buildMonthlyData(projects, insights);
-  const dayStreak = buildDayStreak(projects, insights);
-  const recentActivity = buildRecentActivity(projects, insights);
+function DashboardPage({
+  projects,
+  insights,
+  devRecords,
+}: {
+  projects: Project[];
+  insights: Insight[];
+  devRecords: DevRecord[];
+}) {
+  const reflectionCount = projects.reduce((total, project) => total + project.reflections.length, 0) + devRecords.length;
+  const heatmapData = buildHeatmap(projects, insights, devRecords);
+  const monthlyData = buildMonthlyData(projects, insights, devRecords);
+  const dayStreak = buildDayStreak(projects, insights, devRecords);
+  const recentActivity = buildRecentActivity(projects, insights, devRecords);
   const stats = [
     { label: "Day Streak", value: String(dayStreak), icon: Flame, color: "text-orange-500", bg: "bg-orange-50" },
     { label: "Projects", value: String(projects.length), icon: Folder, color: "text-primary", bg: "bg-accent" },
@@ -1897,7 +2130,7 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
       </div>
 
       {/* Monthly chart + Recent activity */}
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 items-start">
         {/* Chart */}
         <div className="bg-white rounded-xl border border-border p-4 sm:p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-3">
@@ -1993,7 +2226,15 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
                         {item.project}
                       </span>
                     )}
-                    <span className="text-[11px] text-foreground leading-relaxed block">
+                    <span
+                      className="text-[11px] text-foreground leading-relaxed overflow-hidden"
+                      style={{
+                        display: "-webkit-box",
+                        WebkitLineClamp: 3,
+                        WebkitBoxOrient: "vertical",
+                        wordBreak: "break-word",
+                      }}
+                    >
                       {item.text}
                     </span>
                     <span className="text-[10px] text-muted-foreground mt-0.5 block">
@@ -2150,7 +2391,9 @@ function Sidebar({
 
   const isActive = (id: Page) =>
     activePage === id ||
+    ((activePage === "dev-record-detail" || activePage === "write-dev-record") && id === "home") ||
     (activePage === "project-detail" && id === "projects") ||
+    (activePage === "write-reflection" && id === "projects") ||
     (activePage === "insight-detail" && id === "insight");
 
   return (
@@ -2258,6 +2501,7 @@ function MobileNav({
 
   const isActive = (id: Page) =>
     activePage === id ||
+    ((activePage === "dev-record-detail" || activePage === "write-dev-record") && id === "home") ||
     (activePage === "project-detail" && id === "projects") ||
     (activePage === "write-reflection" && id === "projects") ||
     (activePage === "insight-detail" && id === "insight");
@@ -2769,15 +3013,66 @@ function AuthScreen({
 // ── APP ───────────────────────────────────────────────────────────────────
 export default function App() {
   const initialSnapshot = useMemo<Partial<AppSnapshot>>(() => (hasFirebaseConfig ? {} : withoutSeedData(readSnapshot()) ?? {}), []);
+  const [authReady, setAuthReady] = useState(!hasFirebaseConfig);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(initialSnapshot.userProfile ?? null);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [page, setPage] = useState<Page>("home");
   const [projects, setProjects] = useState<Project[]>(initialSnapshot.projects ?? EMPTY_PROJECTS);
   const [insights, setInsights] = useState<Insight[]>(initialSnapshot.insights ?? EMPTY_INSIGHTS);
   const [customBlogs, setCustomBlogs] = useState<CustomBlog[]>(initialSnapshot.customBlogs ?? EMPTY_BLOGS);
+  const [devRecords, setDevRecords] = useState<DevRecord[]>(initialSnapshot.devRecords ?? EMPTY_DEV_RECORDS);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [writingProject, setWritingProject] = useState<Project | null>(null);
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
+  const [selectedDevRecord, setSelectedDevRecord] = useState<DevRecord | null>(null);
+
+  useEffect(() => {
+    if (!hasFirebaseConfig) {
+      setAuthReady(true);
+      return;
+    }
+
+    let active = true;
+    const unsubscribe = subscribeToAuthSession((user) => {
+      void (async () => {
+        if (!active) return;
+        if (!user) {
+          setAuthUserId(null);
+          setUserProfile(null);
+          setProjects(EMPTY_PROJECTS);
+          setInsights(EMPTY_INSIGHTS);
+          setCustomBlogs(EMPTY_BLOGS);
+          setDevRecords(EMPTY_DEV_RECORDS);
+          setSelectedProject(null);
+          setWritingProject(null);
+          setSelectedInsight(null);
+          setSelectedDevRecord(null);
+          setPage("home");
+          setAuthReady(true);
+          return;
+        }
+
+        const remoteState = withoutSeedData(await loadAppState(user.uid) as Partial<AppSnapshot> | null);
+        if (!active) return;
+        setAuthUserId(user.uid);
+        setUserProfile(remoteState?.userProfile ?? {
+          name: user.displayName || user.email?.split("@")[0] || "ThinkLoop User",
+          avatarId: "1",
+          role: "프론트엔드 개발자",
+        });
+        setProjects((remoteState?.projects as Project[] | undefined) ?? EMPTY_PROJECTS);
+        setInsights((remoteState?.insights as Insight[] | undefined) ?? EMPTY_INSIGHTS);
+        setCustomBlogs((remoteState?.customBlogs as CustomBlog[] | undefined) ?? EMPTY_BLOGS);
+        setDevRecords((remoteState?.devRecords as DevRecord[] | undefined) ?? EMPTY_DEV_RECORDS);
+        setAuthReady(true);
+      })();
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -2786,12 +3081,13 @@ export default function App() {
       projects,
       insights,
       customBlogs,
+      devRecords,
     } satisfies AppSnapshot;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
     if (hasFirebaseConfig && authUserId) {
       void saveAppState(authUserId, snapshot);
     }
-  }, [authUserId, userProfile, projects, insights, customBlogs]);
+  }, [authUserId, userProfile, projects, insights, customBlogs, devRecords]);
 
   useEffect(() => {
     if (selectedProject) {
@@ -2807,6 +3103,28 @@ export default function App() {
       setSelectedInsight(insights.find((insight) => insight.id === selectedInsight.id) ?? null);
     }
   }, [insights, selectedInsight?.id]);
+
+  useEffect(() => {
+    if (selectedDevRecord) {
+      setSelectedDevRecord(devRecords.find((record) => record.id === selectedDevRecord.id) ?? null);
+    }
+  }, [devRecords, selectedDevRecord?.id]);
+
+  if (!authReady) {
+    return (
+      <div
+        className="min-h-screen bg-background flex items-center justify-center"
+        style={{ fontFamily: "var(--font-body)" }}
+      >
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center shadow-sm shadow-[#5B8E7D]/30">
+            <Brain className="w-4 h-4 text-white" />
+          </div>
+          <span className="text-sm font-medium">ThinkLoop 불러오는 중...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!userProfile) {
     return (
@@ -2827,6 +3145,7 @@ export default function App() {
           setProjects((remoteState?.projects as Project[] | undefined) ?? EMPTY_PROJECTS);
           setInsights((remoteState?.insights as Insight[] | undefined) ?? EMPTY_INSIGHTS);
           setCustomBlogs((remoteState?.customBlogs as CustomBlog[] | undefined) ?? EMPTY_BLOGS);
+          setDevRecords((remoteState?.devRecords as DevRecord[] | undefined) ?? EMPTY_DEV_RECORDS);
         }}
         onSignup={async (email, password, profile) => {
           if (!hasFirebaseConfig) {
@@ -2834,6 +3153,7 @@ export default function App() {
             setProjects(EMPTY_PROJECTS);
             setInsights(EMPTY_INSIGHTS);
             setCustomBlogs(EMPTY_BLOGS);
+            setDevRecords(EMPTY_DEV_RECORDS);
             return;
           }
           const user = await signUpWithEmail(email, password, profile.name);
@@ -2842,11 +3162,13 @@ export default function App() {
           setProjects(EMPTY_PROJECTS);
           setInsights(EMPTY_INSIGHTS);
           setCustomBlogs(EMPTY_BLOGS);
+          setDevRecords(EMPTY_DEV_RECORDS);
           await saveAppState(user.uid, {
             userProfile: profile,
             projects: EMPTY_PROJECTS,
             insights: EMPTY_INSIGHTS,
             customBlogs: EMPTY_BLOGS,
+            devRecords: EMPTY_DEV_RECORDS,
           });
         }}
         onGoogle={async () => {
@@ -2866,6 +3188,7 @@ export default function App() {
           setProjects((remoteState?.projects as Project[] | undefined) ?? EMPTY_PROJECTS);
           setInsights((remoteState?.insights as Insight[] | undefined) ?? EMPTY_INSIGHTS);
           setCustomBlogs((remoteState?.customBlogs as CustomBlog[] | undefined) ?? EMPTY_BLOGS);
+          setDevRecords((remoteState?.devRecords as DevRecord[] | undefined) ?? EMPTY_DEV_RECORDS);
         }}
       />
     );
@@ -2881,6 +3204,9 @@ export default function App() {
     }
     if (p !== "insight-detail") {
       setSelectedInsight(null);
+    }
+    if (p !== "dev-record-detail") {
+      setSelectedDevRecord(null);
     }
   };
 
@@ -3003,6 +3329,29 @@ export default function App() {
     setPage("insight");
   };
 
+  const goToDevRecordDetail = (record: DevRecord) => {
+    setSelectedDevRecord(devRecords.find((item) => item.id === record.id) ?? record);
+    setPage("dev-record-detail");
+  };
+
+  const handleSaveDevRecord = (record: Pick<DevRecord, "title" | "content">) => {
+    setDevRecords((prev) => [
+      {
+        ...record,
+        id: makeId("dev-record"),
+        date: todayLabel(),
+      },
+      ...prev,
+    ]);
+    setPage("home");
+  };
+
+  const handleDeleteDevRecord = (recordId: string) => {
+    setDevRecords((prev) => prev.filter((record) => record.id !== recordId));
+    setSelectedDevRecord(null);
+    setPage("home");
+  };
+
   const handleLogout = async () => {
     if (hasFirebaseConfig) {
       await logOut();
@@ -3013,9 +3362,11 @@ export default function App() {
     setProjects(EMPTY_PROJECTS);
     setInsights(EMPTY_INSIGHTS);
     setCustomBlogs(EMPTY_BLOGS);
+    setDevRecords(EMPTY_DEV_RECORDS);
     setSelectedProject(null);
     setWritingProject(null);
     setSelectedInsight(null);
+    setSelectedDevRecord(null);
     setPage("home");
   };
 
@@ -3031,9 +3382,12 @@ export default function App() {
             profile={userProfile}
             projects={projects}
             insights={insights}
+            devRecords={devRecords}
             onGoToProject={goToProject}
             onGoToInsight={() => navigate("insight")}
             onSelectInsight={goToInsightDetail}
+            onWriteDevRecord={() => navigate("write-dev-record")}
+            onSelectDevRecord={goToDevRecordDetail}
           />
         )}
         {page === "projects" && (
@@ -3060,7 +3414,20 @@ export default function App() {
             onDelete={handleDeleteInsight}
           />
         )}
-        {page === "dashboard" && <DashboardPage projects={projects} insights={insights} />}
+        {page === "dev-record-detail" && selectedDevRecord && (
+          <DevRecordDetailPage
+            record={selectedDevRecord}
+            onBack={() => navigate("home")}
+            onDelete={handleDeleteDevRecord}
+          />
+        )}
+        {page === "write-dev-record" && (
+          <WriteDevRecordPage
+            onBack={() => navigate("home")}
+            onSave={handleSaveDevRecord}
+          />
+        )}
+        {page === "dashboard" && <DashboardPage projects={projects} insights={insights} devRecords={devRecords} />}
         {page === "project-detail" && selectedProject && (
           <ProjectDetailPage
             project={selectedProject}

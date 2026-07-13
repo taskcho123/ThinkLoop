@@ -10,6 +10,7 @@ export interface PersistedAppState {
   projects: unknown[];
   insights: unknown[];
   customBlogs: unknown[];
+  devRecords?: unknown[];
   updatedAt?: string;
 }
 
