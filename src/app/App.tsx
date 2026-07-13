@@ -5,17 +5,17 @@ import {
   Sparkles, Lightbulb, Calendar, Rocket, Plus, ChevronRight,
   ArrowLeft, Flame, FileText, Activity, TrendingUp,
   ExternalLink, User, Target, Clock, Eye, EyeOff, Check,
-  Mail, Lock, ArrowRight, Pencil,
+  Mail, Lock, ArrowRight, Pencil, Trash2,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { hasFirebaseConfig } from "../services/firebase";
 import { loadAppState, saveAppState } from "../services/appStateRepository";
-import { signInWithEmail, signInWithGoogle, signUpWithEmail } from "../services/authService";
+import { logOut, signInWithEmail, signInWithGoogle, signUpWithEmail } from "../services/authService";
 
 // ── Types ─────────────────────────────────────────────────────────────────
-type Page = "home" | "projects" | "insight" | "dashboard" | "project-detail" | "write-reflection" | "settings";
+type Page = "home" | "projects" | "insight" | "insight-detail" | "dashboard" | "project-detail" | "write-reflection" | "settings";
 type ProjectStatus = "Planning" | "Progress" | "Finished";
 
 interface Reflection {
@@ -45,7 +45,9 @@ interface Insight {
   blogStyle: string;
   title: string;
   summary: string;
+  reflection?: string;
   application: string;
+  articleUrl?: string;
   date: string;
 }
 
@@ -63,6 +65,9 @@ interface AppSnapshot {
 }
 
 const STORAGE_KEY = "thinkloop.app.v1";
+const EMPTY_PROJECTS: Project[] = [];
+const EMPTY_INSIGHTS: Insight[] = [];
+const EMPTY_BLOGS: CustomBlog[] = [];
 
 function todayLabel() {
   return new Date().toLocaleDateString("ko-KR", {
@@ -148,24 +153,6 @@ const PROJECTS: Project[] = [
   },
 ];
 
-const MONTHLY_DATA = [
-  { month: "Sep", reflections: 4, insights: 2 },
-  { month: "Oct", reflections: 8, insights: 5 },
-  { month: "Nov", reflections: 12, insights: 7 },
-  { month: "Dec", reflections: 6, insights: 3 },
-  { month: "Jan", reflections: 15, insights: 9 },
-  { month: "Feb", reflections: 18, insights: 11 },
-  { month: "Mar", reflections: 22, insights: 14 },
-];
-
-const RECENT_ACTIVITY = [
-  { type: "reflection", project: "DevFlow API", text: "Completed auth middleware review", time: "2h ago", icon: FileText },
-  { type: "insight", project: null, text: "Read Toss Tech: Micro-frontend architecture", time: "5h ago", icon: BookOpen },
-  { type: "reflection", project: "LoopBoard", text: "Studied CRDT conflict resolution algorithms", time: "Yesterday", icon: FileText },
-  { type: "project", project: null, text: "Created project: LoopBoard", time: "3d ago", icon: Folder },
-  { type: "insight", project: null, text: "Read Kakao Tech: Type-safe API design with TypeScript", time: "4d ago", icon: BookOpen },
-];
-
 const HEATMAP_COLORS = ["#EEF6F3", "#B8D9D2", "#8DBDAF", "#6BA898", "#5B8E7D"];
 
 const STATUS_CONFIG: Record<ProjectStatus, { bg: string; text: string; dot: string; bar: string }> = {
@@ -174,23 +161,142 @@ const STATUS_CONFIG: Record<ProjectStatus, { bg: string; text: string; dot: stri
   Finished: { bg: "bg-gray-100", text: "text-gray-500", dot: "bg-gray-400", bar: "bg-gray-400" },
 };
 
-// ── Heatmap Generation ────────────────────────────────────────────────────
-function buildHeatmap(): { date: string; count: number }[] {
+// ── Dashboard Data ────────────────────────────────────────────────────────
+function parseAppDate(value: string) {
+  const direct = new Date(value);
+  if (!Number.isNaN(direct.getTime())) return direct;
+
+  const korean = value.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
+  if (korean) {
+    return new Date(Number(korean[1]), Number(korean[2]) - 1, Number(korean[3]));
+  }
+
+  const monthDay = value.match(/(\d{1,2})월\s*(\d{1,2})일/);
+  if (monthDay) {
+    return new Date(new Date().getFullYear(), Number(monthDay[1]) - 1, Number(monthDay[2]));
+  }
+
+  return new Date();
+}
+
+function dateKey(date: Date) {
+  return date.toISOString().split("T")[0];
+}
+
+function monthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(date: Date) {
+  return date.toLocaleString("en", { month: "short" });
+}
+
+function allReflectionDates(projects: Project[]) {
+  return projects.flatMap((project) =>
+    project.reflections.map((reflection) => ({
+      date: parseAppDate(reflection.date),
+      project: project.name,
+      text: reflection.reflection || reflection.iDid || "회고를 작성했습니다.",
+    })),
+  );
+}
+
+function allInsightDates(insights: Insight[]) {
+  return insights.map((insight) => ({
+    date: parseAppDate(insight.date),
+    blog: insight.blog,
+    text: insight.title,
+  }));
+}
+
+function buildHeatmap(projects: Project[], insights: Insight[]) {
+  const counts = new Map<string, number>();
+  for (const item of allReflectionDates(projects)) {
+    const key = dateKey(item.date);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const item of allInsightDates(insights)) {
+    const key = dateKey(item.date);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
   const data: { date: string; count: number }[] = [];
-  const base = new Date("2024-03-17");
+  const today = new Date();
   for (let i = 364; i >= 0; i--) {
-    const d = new Date(base);
-    d.setDate(d.getDate() - i);
-    const r = Math.random();
-    data.push({
-      date: d.toISOString().split("T")[0],
-      count: r < 0.32 ? 0 : r < 0.52 ? 1 : r < 0.72 ? 2 : r < 0.88 ? 3 : 4,
-    });
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const key = dateKey(date);
+    data.push({ date: key, count: counts.get(key) ?? 0 });
   }
   return data;
 }
 
-const HEATMAP_DATA = buildHeatmap();
+function buildMonthlyData(projects: Project[], insights: Insight[]) {
+  const months = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setMonth(date.getMonth() - (6 - index));
+    return {
+      key: monthKey(date),
+      month: monthLabel(date),
+      reflections: 0,
+      insights: 0,
+    };
+  });
+
+  const byMonth = new Map(months.map((item) => [item.key, item]));
+  for (const item of allReflectionDates(projects)) {
+    const target = byMonth.get(monthKey(item.date));
+    if (target) target.reflections += 1;
+  }
+  for (const item of allInsightDates(insights)) {
+    const target = byMonth.get(monthKey(item.date));
+    if (target) target.insights += 1;
+  }
+  return months;
+}
+
+function buildDayStreak(projects: Project[], insights: Insight[]) {
+  const activeDays = new Set([
+    ...allReflectionDates(projects).map((item) => dateKey(item.date)),
+    ...allInsightDates(insights).map((item) => dateKey(item.date)),
+  ]);
+
+  let streak = 0;
+  const cursor = new Date();
+  while (activeDays.has(dateKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function buildRecentActivity(projects: Project[], insights: Insight[]) {
+  return [
+    ...allReflectionDates(projects).map((item) => ({
+      date: item.date,
+      project: item.project,
+      text: item.text,
+      icon: FileText,
+      typeLabel: "Reflection",
+    })),
+    ...allInsightDates(insights).map((item) => ({
+      date: item.date,
+      project: item.blog,
+      text: item.text,
+      icon: BookOpen,
+      typeLabel: "Insight",
+    })),
+    ...projects.map((project) => ({
+      date: parseAppDate(project.createdAt),
+      project: null,
+      text: `Created project: ${project.name}`,
+      icon: Folder,
+      typeLabel: "Project",
+    })),
+  ]
+    .sort((a, b) => b.date.getTime() - a.date.getTime())
+    .slice(0, 8);
+}
 
 // ── Utility Components ────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: ProjectStatus }) {
@@ -383,28 +489,38 @@ const RECENT_INSIGHTS = [
     application: "폼 입력과 서버 응답에 공통 스키마를 적용해 런타임 오류를 줄인다.",
     date: "어제 오후 3:14",
   },
-  {
-    id: "i3",
-    blog: "Woowahan Tech",
-    blogStyle: "bg-[#516AFF] text-white",
-    title: "대규모 리팩토링, 두려움 없이 진행하는 법",
-    summary: "점진적 리팩토링 전략과 테스트 커버리지 확보 순서에 대해 실제 사례를 들어 설명한다.",
-    application: "기능 단위로 변경 범위를 잠그고 회귀 테스트를 먼저 보강한다.",
-    date: "3일 전",
-  },
 ] satisfies Insight[];
+
+function withoutSeedData(state: Partial<AppSnapshot> | null) {
+  if (!state) return null;
+  const projectIds = (state.projects ?? []).map((project) => project.id).sort().join(",");
+  const insightIds = (state.insights ?? []).map((insight) => insight.id).sort().join(",");
+  const hasOnlySeedProjects = projectIds === "1,2,3";
+  const hasOnlySeedInsights = insightIds === "i1,i2,i3";
+
+  return {
+    ...state,
+    projects: hasOnlySeedProjects ? EMPTY_PROJECTS : state.projects ?? EMPTY_PROJECTS,
+    insights: hasOnlySeedInsights ? EMPTY_INSIGHTS : state.insights ?? EMPTY_INSIGHTS,
+    customBlogs: state.customBlogs ?? EMPTY_BLOGS,
+  };
+}
 
 // ── HOME ──────────────────────────────────────────────────────────────────
 function HomePage({
+  profile,
   projects,
   insights,
   onGoToProject,
   onGoToInsight,
+  onSelectInsight,
 }: {
+  profile: UserProfile;
   projects: Project[];
   insights: Insight[];
   onGoToProject: (p: Project) => void;
   onGoToInsight: () => void;
+  onSelectInsight: (insight: Insight) => void;
 }) {
   const today = new Date("2024-03-17").toLocaleDateString("ko-KR", {
     year: "numeric",
@@ -415,164 +531,211 @@ function HomePage({
 
   const inProgressProjects = projects.filter((p) => p.status === "Progress");
   const reflectionCount = projects.reduce((total, project) => total + project.reflections.length, 0);
+  const dayStreak = buildDayStreak(projects, insights);
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-2xl"
+      className="p-8 max-w-6xl"
     >
-      {/* Hero greeting */}
-      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-[#4A7A6A] via-[#5B8E7D] to-[#6BA898] p-8 mb-6 shadow-md shadow-[#5B8E7D]/20">
-        <div className="absolute inset-0 right-0 pointer-events-none select-none opacity-80">
-          <HeroIllustration />
-        </div>
-        <div className="relative z-10 max-w-xs">
-          <p
-            className="text-[10px] font-medium text-white/40 mb-4 tracking-widest uppercase"
-            style={{ fontFamily: "var(--font-mono)" }}
-          >
-            {today}
-          </p>
-          <h1
-            className="text-[2.25rem] font-bold leading-tight mb-2 text-white"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            좋은 하루입니다.
-          </h1>
-          <p className="text-white/70 text-sm leading-relaxed mb-6">
-            AI는 코드를 작성하지만,
-            <br />
-            서비스를 만드는 사람은 당신입니다.
-          </p>
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-3 h-3 text-white/30" />
-            <p className="text-[11px] text-white/35 italic tracking-wide">
-              Code with AI. Think like a Developer.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick stats */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        {[
-          { icon: Flame, value: "12", label: "연속 기록", color: "text-orange-500", bg: "bg-orange-50" },
-          { icon: Folder, value: String(inProgressProjects.length), label: "진행 중인 프로젝트", color: "text-primary", bg: "bg-accent" },
-          { icon: FileText, value: String(reflectionCount), label: "작성한 회고", color: "text-emerald-600", bg: "bg-emerald-50" },
-        ].map(({ icon: Icon, value, label, color, bg }) => (
-          <div key={label} className="bg-white rounded-xl p-4 border border-border shadow-sm text-center">
-            <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mx-auto mb-2`}>
-              <Icon className={`w-4 h-4 ${color}`} />
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
+        <div className="min-w-0">
+          {/* Hero greeting */}
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-[#4A7A6A] via-[#5B8E7D] to-[#6BA898] p-8 mb-6 shadow-md shadow-[#5B8E7D]/20">
+            <div className="absolute inset-0 right-0 pointer-events-none select-none opacity-80">
+              <HeroIllustration />
             </div>
-            <p className="text-2xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
-              {value}
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* In-progress projects */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Rocket className="w-4 h-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground">진행 중인 프로젝트</span>
-          </div>
-          <button
-            onClick={() => inProgressProjects[0] ? onGoToProject(inProgressProjects[0]) : onGoToInsight()}
-            className="text-xs text-muted-foreground hover:text-primary transition-colors"
-          >
-            전체 보기
-          </button>
-        </div>
-        <div className="space-y-2.5">
-          {inProgressProjects.length === 0 ? (
-            <div className="bg-white rounded-xl border border-border p-4 shadow-sm text-sm text-muted-foreground">
-              진행 중인 프로젝트가 없습니다. Projects에서 새 프로젝트를 만들어보세요.
-            </div>
-          ) : inProgressProjects.map((project) => {
-            const cfg = STATUS_CONFIG[project.status];
-            return (
-              <button
-                key={project.id}
-                onClick={() => onGoToProject(project)}
-                className="w-full text-left bg-white rounded-xl border border-border p-4 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all duration-200 group"
+            <div className="relative z-10 max-w-xs">
+              <p
+                className="text-[10px] font-medium text-white/40 mb-4 tracking-widest uppercase"
+                style={{ fontFamily: "var(--font-mono)" }}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span
-                    className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors"
-                    style={{ fontFamily: "var(--font-display)" }}
-                  >
-                    {project.name}
-                  </span>
-                  <StatusBadge status={project.status} />
-                </div>
-                <p className="text-xs text-muted-foreground mb-3 line-clamp-1 leading-relaxed">
-                  {project.description}
+                {today}
+              </p>
+              <h1
+                className="text-[2.25rem] font-bold leading-tight mb-2 text-white"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                {profile.name}님,
+                <br />
+                좋은 하루입니다.
+              </h1>
+              <p className="text-white/70 text-sm leading-relaxed mb-6">
+                AI는 코드를 작성하지만,
+                <br />
+                서비스를 만드는 사람은 당신입니다.
+              </p>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-3 h-3 text-white/30" />
+                <p className="text-[11px] text-white/35 italic tracking-wide">
+                  Code with AI. Think like a Developer.
                 </p>
-                <div className="flex items-center gap-3">
-                  <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>
-                    {STATUS_STEPS.find(s => s.value === project.status)?.label}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                    <FileText className="w-3 h-3" />
-                    회고 {project.reflections.length}개
-                  </span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Recent insights */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground">최근 인사이트</span>
-          </div>
-          <button
-            onClick={onGoToInsight}
-            className="text-xs text-muted-foreground hover:text-primary transition-colors"
-          >
-            인사이트 작성하기
-          </button>
-        </div>
-        <div className="bg-white rounded-xl border border-border shadow-sm divide-y divide-border">
-          {insights.slice(0, 3).map((insight) => (
-            <div key={insight.id} className="p-4 hover:bg-muted/30 transition-colors cursor-default">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${insight.blogStyle}`}>
-                  {insight.blog}
-                </span>
-                <span className="text-[11px] text-muted-foreground">{insight.date}</span>
               </div>
-              <p className="text-sm font-medium text-foreground mb-1 leading-snug">{insight.title}</p>
-              <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{insight.summary}</p>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Reflection prompt */}
-      <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-2.5">
-          <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
-            <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
           </div>
-          <span className="text-sm font-semibold text-foreground">오늘의 회고 질문</span>
+
+          {/* Quick stats */}
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            {[
+              { icon: Flame, value: String(dayStreak), label: "연속 기록", color: "text-orange-500", bg: "bg-orange-50" },
+              { icon: Folder, value: String(inProgressProjects.length), label: "진행 중인 프로젝트", color: "text-primary", bg: "bg-accent" },
+              { icon: FileText, value: String(reflectionCount), label: "작성한 회고", color: "text-emerald-600", bg: "bg-emerald-50" },
+            ].map(({ icon: Icon, value, label, color, bg }) => (
+              <div key={label} className="bg-white rounded-xl p-4 border border-border shadow-sm text-center">
+                <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mx-auto mb-2`}>
+                  <Icon className={`w-4 h-4 ${color}`} />
+                </div>
+                <p className="text-2xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+                  {value}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Reflection prompt */}
+          <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+              </div>
+              <span className="text-sm font-semibold text-foreground">오늘의 회고</span>
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+              AI가 코딩을 도울 수 있지만, 좋은 소프트웨어의 완성은 개발자의 깊은 고민에 있습니다.
+              <br />
+              오늘 진행한 프로젝트의 회고를 기록하며 한 단계 더 성장해 보세요.
+            </p>
+            {inProgressProjects.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border px-4 py-3 text-xs text-muted-foreground">
+                진행 중인 프로젝트가 없습니다.
+              </div>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+                {inProgressProjects.map((project) => (
+                  <button
+                    key={project.id}
+                    onClick={() => onGoToProject(project)}
+                    className="min-w-[190px] text-left rounded-xl border border-border bg-white p-3 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-foreground line-clamp-1">{project.name}</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                      {project.description}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <p className="text-sm text-muted-foreground leading-relaxed mb-3">
-          AI에게 묻기 전에 — 스스로 무엇을 시도해봤나요? 지금 문제를 3문장으로 정리해보세요.
-          생각을 정리하는 것만으로도 절반은 해결됩니다.
-        </p>
-        <button className="flex items-center gap-1.5 text-xs font-medium text-primary hover:gap-2 transition-all duration-150">
-          회고 시작하기 <ChevronRight className="w-3.5 h-3.5" />
-        </button>
+
+        <aside className="min-w-0 xl:sticky xl:top-8">
+          {/* In-progress projects */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Rocket className="w-4 h-4 text-primary" />
+                <span className="text-sm font-semibold text-foreground">진행 중인 프로젝트</span>
+              </div>
+              <button
+                onClick={() => inProgressProjects[0] ? onGoToProject(inProgressProjects[0]) : onGoToInsight()}
+                className="text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                전체 보기
+              </button>
+            </div>
+            <div className="space-y-2.5">
+              {inProgressProjects.length === 0 ? (
+                <div className="bg-white rounded-xl border border-border p-4 shadow-sm text-sm text-muted-foreground">
+                  진행 중인 프로젝트가 없습니다. Projects에서 새 프로젝트를 만들어보세요.
+                </div>
+              ) : inProgressProjects.map((project) => {
+                const cfg = STATUS_CONFIG[project.status];
+                return (
+                  <button
+                    key={project.id}
+                    onClick={() => onGoToProject(project)}
+                    className="w-full text-left bg-white rounded-xl border border-border p-4 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all duration-200 group"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span
+                        className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors"
+                        style={{ fontFamily: "var(--font-display)" }}
+                      >
+                        {project.name}
+                      </span>
+                      <StatusBadge status={project.status} />
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-3 line-clamp-1 leading-relaxed">
+                      {project.description}
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>
+                        {STATUS_STEPS.find(s => s.value === project.status)?.label}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        <FileText className="w-3 h-3" />
+                        회고 {project.reflections.length}개
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Recent insights */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-primary" />
+                <span className="text-sm font-semibold text-foreground">최근 인사이트</span>
+              </div>
+              <button
+                onClick={onGoToInsight}
+                className="text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                인사이트 작성하기
+              </button>
+            </div>
+            <div className="bg-white rounded-xl border border-border shadow-sm divide-y divide-border">
+              {insights.slice(0, 3).map((insight) => (
+                <div
+                  key={insight.id}
+                  onClick={() => onSelectInsight(insight)}
+                  className="relative p-4 hover:bg-muted/30 transition-colors cursor-pointer"
+                >
+                  {insight.articleUrl && (
+                    <a
+                      href={insight.articleUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                      className="absolute right-3 top-3 w-7 h-7 rounded-full bg-white border border-border text-muted-foreground shadow-sm flex items-center justify-center hover:text-primary hover:border-[#B8D9D2] transition-colors"
+                      title="게시글 열기"
+                      aria-label={`${insight.title} 게시글 열기`}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                  <div className="flex items-center gap-2 mb-1.5 pr-8">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${insight.blogStyle}`}>
+                      {insight.blog}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{insight.date}</span>
+                  </div>
+                  <p className="text-sm font-medium text-foreground mb-1 leading-snug">{insight.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{insight.summary}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
       </div>
     </motion.div>
   );
@@ -580,10 +743,9 @@ function HomePage({
 
 // ── INSIGHT CONSTANTS ─────────────────────────────────────────────────────
 const DEFAULT_BLOGS = [
-  { id: "toss",     label: "Toss Tech",     url: "https://toss.tech",        bg: "#0064FF", text: "#FFFFFF" },
-  { id: "kakao",    label: "Kakao Tech",    url: "https://tech.kakao.com",   bg: "#FEE500", text: "#111111" },
-  { id: "naver",    label: "Naver D2",      url: "https://d2.naver.com",     bg: "#03C75A", text: "#FFFFFF" },
-  { id: "woowahan", label: "Woowahan Tech", url: "https://techblog.woowahan.com", bg: "#516AFF", text: "#FFFFFF" },
+  { id: "toss",  label: "Toss Tech",  url: "https://toss.tech/",       bg: "#0064FF", text: "#FFFFFF" },
+  { id: "kakao", label: "Kakao Tech", url: "https://tech.kakao.com/",  bg: "#FEE500", text: "#111111" },
+  { id: "naver", label: "Naver D2",   url: "https://d2.naver.com/home", bg: "#03C75A", text: "#FFFFFF" },
 ];
 
 const BLOG_PALETTE = [
@@ -601,7 +763,6 @@ const DEFAULT_BLOG_STYLES: Record<string, string> = {
   "Toss Tech": "bg-[#0064FF] text-white",
   "Kakao Tech": "bg-[#FEE500] text-gray-900",
   "Naver D2": "bg-[#03C75A] text-white",
-  "Woowahan Tech": "bg-[#516AFF] text-white",
 };
 
 interface CustomBlog {
@@ -625,18 +786,20 @@ function InsightPage({
   customBlogs,
   onAddBlog,
   onSaveInsight,
+  onSelectInsight,
 }: {
   insights: Insight[];
   customBlogs: CustomBlog[];
   onAddBlog: (blog: CustomBlog) => void;
   onSaveInsight: (insight: Omit<Insight, "id" | "date" | "blogStyle">) => void;
+  onSelectInsight: (insight: Insight) => void;
 }) {
   const [activeBlog, setActiveBlog] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [newUrl, setNewUrl] = useState("");
   const [newColor, setNewColor] = useState(BLOG_PALETTE[0].hex);
-  const [note, setNote] = useState({ title: "", summary: "", reflection: "", application: "" });
+  const [note, setNote] = useState({ title: "", articleUrl: "", summary: "", reflection: "", application: "" });
 
   const allBlogs = [
     ...DEFAULT_BLOGS,
@@ -666,13 +829,16 @@ function InsightPage({
   const handleSaveInsight = () => {
     if (!canSaveInsight) return;
     const blog = activeBlogData ?? allBlogs[0];
+    const articleUrl = note.articleUrl.trim();
     onSaveInsight({
       blog: blog.label,
       title: note.title.trim(),
       summary: note.summary.trim(),
-      application: note.application.trim() || note.reflection.trim(),
+      reflection: note.reflection.trim(),
+      application: note.application.trim(),
+      ...(articleUrl ? { articleUrl: articleUrl.startsWith("http") ? articleUrl : `https://${articleUrl}` } : {}),
     });
-    setNote({ title: "", summary: "", reflection: "", application: "" });
+    setNote({ title: "", articleUrl: "", summary: "", reflection: "", application: "" });
     setActiveBlog(null);
   };
 
@@ -681,138 +847,177 @@ function InsightPage({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-2xl"
+      className="p-8 max-w-6xl"
     >
       <SectionHeader title="오늘의 인사이트" sub="아티클을 읽고 배운 것을 정리해보세요." />
 
-      {/* Blog selector card */}
-      <div className="bg-white rounded-lg border border-border p-5 mb-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground">Select a Tech Blog</span>
-          </div>
-          <span className="text-[11px] text-muted-foreground">{allBlogs.length}개 블로그</span>
-        </div>
-
-        {/* Scrollable horizontal list */}
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-0.5">
-          {/* + button on the LEFT */}
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-dashed border-border text-xs text-muted-foreground hover:border-primary hover:text-primary transition-all duration-150"
-            title="블로그 추가"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            추가
-          </button>
-
-          {/* Separator */}
-          <div className="h-5 w-px bg-border flex-shrink-0" />
-
-          {/* Blog buttons */}
-          {allBlogs.map((blog) => {
-            const active = activeBlog === blog.id;
-            return (
-              <button
-                key={blog.id}
-                onClick={() => setActiveBlog(active ? null : blog.id)}
-                className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
-                  active ? "ring-2 ring-offset-1 ring-primary/30 scale-[1.03]" : "hover:opacity-90"
-                }`}
-                style={{ backgroundColor: blog.bg, color: blog.text }}
-              >
-                <ExternalLink className="w-3 h-3 opacity-60" />
-                {blog.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {activeBlogData && (
-          <div className="mt-3.5 flex items-center justify-between">
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-              <span className="font-medium text-foreground">{activeBlogData.label}</span>
-              을 읽고 있습니다 — 다 읽은 후 아래에 정리해보세요.
-            </p>
-            <a
-              href={activeBlogData.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] text-primary hover:underline flex items-center gap-0.5"
-            >
-              열기 <ExternalLink className="w-2.5 h-2.5" />
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* Notebook areas */}
-      <div className="space-y-3">
-        <NotebookArea
-          label="아티클 제목"
-          placeholder="읽은 아티클 제목을 입력하세요..."
-          icon={BookOpen}
-          value={note.title}
-          onChange={(value) => setNote((prev) => ({ ...prev, title: value }))}
-        />
-        <NotebookArea
-          label="아티클 요약"
-          placeholder="핵심 내용을 나만의 언어로 정리해보세요..."
-          icon={FileText}
-          value={note.summary}
-          onChange={(value) => setNote((prev) => ({ ...prev, summary: value }))}
-        />
-        <NotebookArea
-          label="느낀 점 & 회고"
-          placeholder="놀랐던 점, 기존 생각과 달랐던 부분은?"
-          icon={Lightbulb}
-          value={note.reflection}
-          onChange={(value) => setNote((prev) => ({ ...prev, reflection: value }))}
-        />
-        <NotebookArea
-          label="내 프로젝트에 적용하기"
-          placeholder="어떤 기술, 패턴, 아이디어를 실제로 써볼 수 있을까요?"
-          icon={Rocket}
-          value={note.application}
-          onChange={(value) => setNote((prev) => ({ ...prev, application: value }))}
-        />
-      </div>
-
-      <div className="mt-5 flex justify-end">
-        <button
-          onClick={handleSaveInsight}
-          disabled={!canSaveInsight}
-          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-[#4A7A6A] transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Sparkles className="w-4 h-4" />
-          인사이트 저장
-        </button>
-      </div>
-
-      <div className="mt-6 bg-white rounded-xl border border-border shadow-sm divide-y divide-border">
-        {insights.length === 0 ? (
-          <p className="p-5 text-sm text-muted-foreground">저장된 인사이트가 없습니다.</p>
-        ) : (
-          insights.map((insight) => (
-            <div key={insight.id} className="p-4">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${insight.blogStyle || activeStyle}`}>
-                  {insight.blog}
-                </span>
-                <span className="text-[11px] text-muted-foreground">{insight.date}</span>
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
+        <div className="min-w-0">
+          {/* Blog selector card */}
+          <div className="bg-white rounded-lg border border-border p-5 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-primary" />
+                <span className="text-sm font-semibold text-foreground">Select a Tech Blog</span>
               </div>
-              <p className="text-sm font-semibold text-foreground mb-1">{insight.title}</p>
-              <p className="text-xs text-muted-foreground leading-relaxed mb-2">{insight.summary}</p>
-              {insight.application && (
-                <p className="text-xs text-primary bg-accent rounded-lg px-3 py-2 leading-relaxed">
-                  적용: {insight.application}
-                </p>
-              )}
+              <span className="text-[11px] text-muted-foreground">{allBlogs.length}개 블로그</span>
             </div>
-          ))
-        )}
+
+            {/* Scrollable horizontal list */}
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-0.5">
+              {/* + button on the LEFT */}
+              <button
+                onClick={() => setShowAdd(true)}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-dashed border-border text-xs text-muted-foreground hover:border-primary hover:text-primary transition-all duration-150"
+                title="블로그 추가"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                추가
+              </button>
+
+              {/* Separator */}
+              <div className="h-5 w-px bg-border flex-shrink-0" />
+
+              {/* Blog buttons */}
+              {allBlogs.map((blog) => {
+                const active = activeBlog === blog.id;
+                return (
+                  <button
+                    key={blog.id}
+                    onClick={() => setActiveBlog(active ? null : blog.id)}
+                    className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                      active ? "ring-2 ring-offset-1 ring-primary/30 scale-[1.03]" : "hover:opacity-90"
+                    }`}
+                    style={{ backgroundColor: blog.bg, color: blog.text }}
+                  >
+                    <ExternalLink className="w-3 h-3 opacity-60" />
+                    {blog.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {activeBlogData && (
+              <div className="mt-3.5 flex items-center justify-between">
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                  <span className="font-medium text-foreground">{activeBlogData.label}</span>
+                  을 읽고 있습니다 — 다 읽은 후 아래에 정리해보세요.
+                </p>
+                <a
+                  href={activeBlogData.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-primary hover:underline flex items-center gap-0.5"
+                >
+                  열기 <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+            )}
+          </div>
+
+          {/* Notebook areas */}
+          <div className="space-y-3">
+            <NotebookArea
+              label="아티클 제목"
+              placeholder="읽은 아티클 제목을 입력하세요..."
+              icon={BookOpen}
+              value={note.title}
+              onChange={(value) => setNote((prev) => ({ ...prev, title: value }))}
+            />
+            <div className="bg-white rounded-xl border border-border p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <ExternalLink className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium text-foreground">게시글 링크</span>
+                <span className="text-[10px] text-muted-foreground">선택</span>
+              </div>
+              <input
+                type="url"
+                value={note.articleUrl}
+                onChange={(event) => setNote((prev) => ({ ...prev, articleUrl: event.target.value }))}
+                placeholder="https://example.com/article"
+                className="w-full px-3 py-2 bg-muted rounded-lg text-sm border border-border focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
+            <NotebookArea
+              label="아티클 요약"
+              placeholder="핵심 내용을 나만의 언어로 정리해보세요..."
+              icon={FileText}
+              value={note.summary}
+              onChange={(value) => setNote((prev) => ({ ...prev, summary: value }))}
+            />
+            <NotebookArea
+              label="느낀 점 & 회고"
+              placeholder="놀랐던 점, 기존 생각과 달랐던 부분은?"
+              icon={Lightbulb}
+              value={note.reflection}
+              onChange={(value) => setNote((prev) => ({ ...prev, reflection: value }))}
+            />
+            <NotebookArea
+              label="내 프로젝트에 적용하기"
+              placeholder="어떤 기술, 패턴, 아이디어를 실제로 써볼 수 있을까요?"
+              icon={Rocket}
+              value={note.application}
+              onChange={(value) => setNote((prev) => ({ ...prev, application: value }))}
+            />
+          </div>
+
+          <div className="mt-5 flex justify-end">
+            <button
+              onClick={handleSaveInsight}
+              disabled={!canSaveInsight}
+              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-[#4A7A6A] transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Sparkles className="w-4 h-4" />
+              인사이트 저장
+            </button>
+          </div>
+        </div>
+
+        <aside className="min-w-0 xl:sticky xl:top-8">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-primary" />
+              <span className="text-sm font-semibold text-foreground">인사이트 리스트</span>
+            </div>
+            <span className="text-[11px] text-muted-foreground">{insights.length}개</span>
+          </div>
+          <div className="bg-white rounded-xl border border-border shadow-sm divide-y divide-border max-h-none xl:max-h-[calc(100vh-10rem)] xl:overflow-y-auto scrollbar-hide">
+            {insights.length === 0 ? (
+              <p className="p-5 text-sm text-muted-foreground">저장된 인사이트가 없습니다.</p>
+            ) : (
+              insights.map((insight) => (
+                <div
+                  key={insight.id}
+                  onClick={() => onSelectInsight(insight)}
+                  className="relative p-4 cursor-pointer hover:bg-muted/30 transition-colors"
+                >
+                  {insight.articleUrl && (
+                    <a
+                      href={insight.articleUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                      className="absolute right-3 top-3 w-7 h-7 rounded-full bg-white border border-border text-muted-foreground shadow-sm flex items-center justify-center hover:text-primary hover:border-[#B8D9D2] transition-colors"
+                      title="게시글 열기"
+                      aria-label={`${insight.title} 게시글 열기`}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                  <div className="flex items-center gap-2 mb-1.5 pr-8">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${insight.blogStyle || activeStyle}`}>
+                      {insight.blog}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{insight.date}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground mb-1">{insight.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{insight.summary}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </aside>
       </div>
 
       {/* Add blog modal */}
@@ -926,6 +1131,128 @@ function InsightPage({
   );
 }
 
+// ── INSIGHT DETAIL ────────────────────────────────────────────────────────
+function InsightDetailPage({
+  insight,
+  onBack,
+  onDelete,
+}: {
+  insight: Insight;
+  onBack: () => void;
+  onDelete: (insightId: string) => void;
+}) {
+  const [showDelete, setShowDelete] = useState(false);
+  const sections = [
+    { label: "아티클 요약", value: insight.summary, icon: FileText, tone: "bg-accent text-primary border-[#C5E0D9]" },
+    { label: "느낀 점 & 회고", value: insight.reflection, icon: Lightbulb, tone: "bg-amber-50 text-amber-600 border-amber-100" },
+    { label: "내 프로젝트에 적용하기", value: insight.application, icon: Rocket, tone: "bg-emerald-50 text-emerald-600 border-emerald-100" },
+  ].filter((section) => section.value && section.value.trim());
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      className="p-8 max-w-2xl"
+    >
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
+          >
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform duration-150" />
+            Insight
+          </button>
+          <button
+            onClick={() => setShowDelete(true)}
+            className="w-8 h-8 rounded-full bg-white border border-rose-100 text-rose-300 shadow-sm flex items-center justify-center hover:text-rose-400 hover:border-rose-200 hover:bg-rose-50 active:scale-95 transition-all"
+            title="인사이트 삭제"
+            aria-label={`${insight.title} 삭제`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+        {insight.articleUrl && (
+          <a
+            href={insight.articleUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-9 h-9 rounded-full bg-white border border-border text-muted-foreground shadow-sm flex items-center justify-center hover:text-primary hover:border-[#B8D9D2] transition-colors"
+            title="게시글 열기"
+            aria-label={`${insight.title} 게시글 열기`}
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-border p-6 shadow-sm mb-5">
+        <div className="flex items-center gap-2 mb-3">
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${insight.blogStyle}`}>
+            {insight.blog}
+          </span>
+          <span className="text-[11px] text-muted-foreground">{insight.date}</span>
+        </div>
+        <h2 className="text-xl font-bold text-foreground leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+          {insight.title}
+        </h2>
+      </div>
+
+      <div className="space-y-3">
+        {sections.map(({ label, value, icon: Icon, tone }) => (
+          <div key={label} className={`bg-white rounded-xl border p-5 shadow-sm ${tone.split(" ")[2]}`}>
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold mb-3 ${tone.split(" ").slice(0, 2).join(" ")}`}>
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </div>
+            <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {showDelete && (
+        <div
+          className="fixed inset-0 bg-black/15 backdrop-blur-[2px] flex items-center justify-center z-50"
+          onClick={() => setShowDelete(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4 border border-border"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="w-11 h-11 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center mb-4">
+              <Trash2 className="w-5 h-5 text-rose-300" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground mb-1" style={{ fontFamily: "var(--font-display)" }}>
+              인사이트를 삭제할까요?
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+              <span className="font-medium text-foreground">{insight.title}</span> 기록이 삭제됩니다.
+            </p>
+            <div className="flex gap-2.5">
+              <button
+                onClick={() => setShowDelete(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => onDelete(insight.id)}
+                className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 transition-colors shadow-sm"
+              >
+                삭제하기
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 // ── PROJECTS ──────────────────────────────────────────────────────────────
 function ProjectsPage({
   projects,
@@ -942,6 +1269,7 @@ function ProjectsPage({
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newStatus, setNewStatus] = useState<ProjectStatus>("Planning");
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
 
   const handleCreate = () => {
     if (!newName.trim()) return;
@@ -1023,11 +1351,12 @@ function ProjectsPage({
                   {project.createdAt}
                 </div>
                 <button
-                  onClick={() => onDeleteProject(project.id)}
-                  className="text-rose-500 hover:underline"
-                  title="Delete project"
+                  onClick={() => setProjectToDelete(project)}
+                  className="w-8 h-8 rounded-full bg-white border border-rose-100 text-rose-300 shadow-sm flex items-center justify-center hover:text-rose-400 hover:border-rose-200 hover:bg-rose-50 active:scale-95 transition-all"
+                  title="프로젝트 삭제"
+                  aria-label={`${project.name} 삭제`}
                 >
-                  삭제
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </motion.div>
@@ -1109,6 +1438,49 @@ function ProjectsPage({
           </motion.div>
         </div>
       )}
+
+      {/* Delete confirmation modal */}
+      {projectToDelete && (
+        <div
+          className="fixed inset-0 bg-black/15 backdrop-blur-[2px] flex items-center justify-center z-50"
+          onClick={() => setProjectToDelete(null)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4 border border-border"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-11 h-11 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center mb-4">
+              <Trash2 className="w-5 h-5 text-rose-300" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground mb-1" style={{ fontFamily: "var(--font-display)" }}>
+              프로젝트를 삭제할까요?
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+              <span className="font-medium text-foreground">{projectToDelete.name}</span> 프로젝트와 작성된 회고가 함께 삭제됩니다.
+            </p>
+            <div className="flex gap-2.5">
+              <button
+                onClick={() => setProjectToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  onDeleteProject(projectToDelete.id);
+                  setProjectToDelete(null);
+                }}
+                className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 transition-colors shadow-sm"
+              >
+                삭제하기
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -1158,12 +1530,15 @@ function ProjectDetailPage({
   onBack,
   onStatusChange,
   onWriteReflection,
+  onDeleteReflection,
 }: {
   project: Project;
   onBack: () => void;
   onStatusChange: (id: string, status: ProjectStatus) => void;
   onWriteReflection: (project: Project) => void;
+  onDeleteReflection: (projectId: string, reflectionId: string) => void;
 }) {
+  const [reflectionToDelete, setReflectionToDelete] = useState<Reflection | null>(null);
   const reflectionFields = [
     { key: "aiDid", label: "AI가 한 일", icon: Sparkles, color: "bg-[#EEF6F3] border-[#C5E0D9] text-[#5B8E7D]" },
     { key: "iDid", label: "내가 한 일", icon: User, color: "bg-emerald-50 border-emerald-100 text-emerald-600" },
@@ -1257,11 +1632,21 @@ function ProjectDetailPage({
               >
                 <div className="absolute left-[9px] top-[18px] w-[13px] h-[13px] rounded-full bg-white border-2 border-primary shadow-sm" />
                 <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-xs font-medium text-muted-foreground" style={{ fontFamily: "var(--font-mono)" }}>
-                      {ref.date}
-                    </span>
+                  <div className="flex items-center justify-between gap-2 mb-4">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-xs font-medium text-muted-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+                        {ref.date}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setReflectionToDelete(ref)}
+                      className="w-8 h-8 rounded-full bg-white border border-rose-100 text-rose-300 shadow-sm flex items-center justify-center hover:text-rose-400 hover:border-rose-200 hover:bg-rose-50 active:scale-95 transition-all"
+                      title="회고 삭제"
+                      aria-label={`${ref.date} 회고 삭제`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                   <div className="space-y-2.5">
                     {reflectionFields.map(({ key, label, icon: Icon, color }) => {
@@ -1281,6 +1666,48 @@ function ProjectDetailPage({
               </motion.div>
             ))}
           </div>
+        </div>
+      )}
+
+      {reflectionToDelete && (
+        <div
+          className="fixed inset-0 bg-black/15 backdrop-blur-[2px] flex items-center justify-center z-50"
+          onClick={() => setReflectionToDelete(null)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4 border border-border"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="w-11 h-11 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center mb-4">
+              <Trash2 className="w-5 h-5 text-rose-300" />
+            </div>
+            <h3 className="text-lg font-bold text-foreground mb-1" style={{ fontFamily: "var(--font-display)" }}>
+              회고를 삭제할까요?
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+              <span className="font-medium text-foreground">{reflectionToDelete.date}</span>에 작성한 회고가 삭제됩니다.
+            </p>
+            <div className="flex gap-2.5">
+              <button
+                onClick={() => setReflectionToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  onDeleteReflection(project.id, reflectionToDelete.id);
+                  setReflectionToDelete(null);
+                }}
+                className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl text-sm font-medium hover:bg-rose-600 transition-colors shadow-sm"
+              >
+                삭제하기
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
     </motion.div>
@@ -1406,8 +1833,12 @@ function WriteReflectionPage({
 // ── DASHBOARD ─────────────────────────────────────────────────────────────
 function DashboardPage({ projects, insights }: { projects: Project[]; insights: Insight[] }) {
   const reflectionCount = projects.reduce((total, project) => total + project.reflections.length, 0);
+  const heatmapData = buildHeatmap(projects, insights);
+  const monthlyData = buildMonthlyData(projects, insights);
+  const dayStreak = buildDayStreak(projects, insights);
+  const recentActivity = buildRecentActivity(projects, insights);
   const stats = [
-    { label: "Day Streak", value: "12", icon: Flame, color: "text-orange-500", bg: "bg-orange-50" },
+    { label: "Day Streak", value: String(dayStreak), icon: Flame, color: "text-orange-500", bg: "bg-orange-50" },
     { label: "Projects", value: String(projects.length), icon: Folder, color: "text-primary", bg: "bg-accent" },
     { label: "Insights", value: String(insights.length), icon: BookOpen, color: "text-purple-600", bg: "bg-purple-50" },
     { label: "Reflections", value: String(reflectionCount), icon: FileText, color: "text-emerald-600", bg: "bg-emerald-50" },
@@ -1462,7 +1893,7 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
             <span className="text-[10px] text-muted-foreground">More</span>
           </div>
         </div>
-        <ActivityHeatmap data={HEATMAP_DATA} />
+        <ActivityHeatmap data={heatmapData} />
       </div>
 
       {/* Monthly chart + Recent activity */}
@@ -1485,7 +1916,7 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
             ))}
           </div>
           <ResponsiveContainer width="100%" height={140}>
-            <AreaChart data={MONTHLY_DATA} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+            <AreaChart data={monthlyData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
               <defs>
                 <linearGradient id="tl-refGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#5B8E7D" stopOpacity={0.15} />
@@ -1544,7 +1975,12 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
             <span className="text-sm font-semibold text-foreground">Recent</span>
           </div>
           <div className="space-y-0">
-            {RECENT_ACTIVITY.map((item, i) => {
+            {recentActivity.length === 0 ? (
+              <div className="py-10 text-center">
+                <Clock className="w-7 h-7 mx-auto mb-2 text-muted-foreground/30" />
+                <p className="text-xs text-muted-foreground">아직 활동 기록이 없습니다.</p>
+              </div>
+            ) : recentActivity.map((item, i) => {
               const ItemIcon = item.icon;
               return (
                 <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-border last:border-0">
@@ -1560,7 +1996,9 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
                     <span className="text-[11px] text-foreground leading-relaxed block">
                       {item.text}
                     </span>
-                    <span className="text-[10px] text-muted-foreground mt-0.5 block">{item.time}</span>
+                    <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                      {item.typeLabel} · {item.date.toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
+                    </span>
                   </div>
                 </div>
               );
@@ -1577,10 +2015,12 @@ function SettingsPage({
   profile,
   avatar,
   onUpdateProfile,
+  onLogout,
 }: {
   profile: UserProfile;
   avatar: typeof AVATAR_OPTIONS[number];
   onUpdateProfile: (profile: UserProfile) => void;
+  onLogout: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(profile);
@@ -1674,21 +2114,18 @@ function SettingsPage({
         )}
       </div>
 
-      {/* Preferences */}
-      <div className="space-y-2.5">
-        {[
-          { label: "매일 알림 시간", value: "오전 9:00" },
-          { label: "회고 작성 언어", value: "한국어 / English" },
-          { label: "테마", value: "라이트 모드" },
-        ].map(({ label, value }) => (
-          <div key={label} className="bg-white rounded-xl border border-border p-4 shadow-sm flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
-              <p className="text-sm font-medium text-foreground">{value}</p>
-            </div>
-            <button className="text-xs text-primary hover:underline font-medium">변경</button>
-          </div>
-        ))}
+      {/* Account actions */}
+      <div className="bg-white rounded-xl border border-border p-4 shadow-sm flex items-center justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground mb-0.5">계정</p>
+          <p className="text-sm font-medium text-foreground">현재 계정에서 로그아웃합니다.</p>
+        </div>
+        <button
+          onClick={onLogout}
+          className="px-3.5 py-2 rounded-lg text-xs font-medium text-rose-500 bg-white border border-rose-100 hover:bg-rose-50 hover:border-rose-200 transition-colors"
+        >
+          로그아웃
+        </button>
       </div>
     </motion.div>
   );
@@ -1712,7 +2149,9 @@ function Sidebar({
   ];
 
   const isActive = (id: Page) =>
-    activePage === id || (activePage === "project-detail" && id === "projects");
+    activePage === id ||
+    (activePage === "project-detail" && id === "projects") ||
+    (activePage === "insight-detail" && id === "insight");
 
   return (
     <aside className="w-52 h-screen flex flex-col bg-white border-r border-border flex-shrink-0">
@@ -2284,15 +2723,16 @@ function AuthScreen({
 
 // ── APP ───────────────────────────────────────────────────────────────────
 export default function App() {
-  const initialSnapshot = useMemo(readSnapshot, []);
+  const initialSnapshot = useMemo<Partial<AppSnapshot>>(() => (hasFirebaseConfig ? {} : withoutSeedData(readSnapshot()) ?? {}), []);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(initialSnapshot.userProfile ?? null);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [page, setPage] = useState<Page>("home");
-  const [projects, setProjects] = useState<Project[]>(initialSnapshot.projects ?? PROJECTS);
-  const [insights, setInsights] = useState<Insight[]>(initialSnapshot.insights ?? RECENT_INSIGHTS);
-  const [customBlogs, setCustomBlogs] = useState<CustomBlog[]>(initialSnapshot.customBlogs ?? []);
+  const [projects, setProjects] = useState<Project[]>(initialSnapshot.projects ?? EMPTY_PROJECTS);
+  const [insights, setInsights] = useState<Insight[]>(initialSnapshot.insights ?? EMPTY_INSIGHTS);
+  const [customBlogs, setCustomBlogs] = useState<CustomBlog[]>(initialSnapshot.customBlogs ?? EMPTY_BLOGS);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [writingProject, setWritingProject] = useState<Project | null>(null);
+  const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
 
   useEffect(() => {
     if (!userProfile) return;
@@ -2317,6 +2757,12 @@ export default function App() {
     }
   }, [projects, selectedProject?.id, writingProject?.id]);
 
+  useEffect(() => {
+    if (selectedInsight) {
+      setSelectedInsight(insights.find((insight) => insight.id === selectedInsight.id) ?? null);
+    }
+  }, [insights, selectedInsight?.id]);
+
   if (!userProfile) {
     return (
       <AuthScreen
@@ -2326,33 +2772,36 @@ export default function App() {
             return;
           }
           const user = await signInWithEmail(email, password);
-          const remoteState = await loadAppState(user.uid);
+          const remoteState = withoutSeedData(await loadAppState(user.uid) as Partial<AppSnapshot> | null);
           setAuthUserId(user.uid);
           setUserProfile(remoteState?.userProfile ?? {
             name: user.displayName || email.split("@")[0],
             avatarId: "1",
             role: "프론트엔드 개발자",
           });
-          setProjects((remoteState?.projects as Project[] | undefined) ?? PROJECTS);
-          setInsights((remoteState?.insights as Insight[] | undefined) ?? RECENT_INSIGHTS);
-          setCustomBlogs((remoteState?.customBlogs as CustomBlog[] | undefined) ?? []);
+          setProjects((remoteState?.projects as Project[] | undefined) ?? EMPTY_PROJECTS);
+          setInsights((remoteState?.insights as Insight[] | undefined) ?? EMPTY_INSIGHTS);
+          setCustomBlogs((remoteState?.customBlogs as CustomBlog[] | undefined) ?? EMPTY_BLOGS);
         }}
         onSignup={async (email, password, profile) => {
           if (!hasFirebaseConfig) {
             setUserProfile(profile);
+            setProjects(EMPTY_PROJECTS);
+            setInsights(EMPTY_INSIGHTS);
+            setCustomBlogs(EMPTY_BLOGS);
             return;
           }
           const user = await signUpWithEmail(email, password, profile.name);
           setAuthUserId(user.uid);
           setUserProfile(profile);
-          setProjects(PROJECTS);
-          setInsights(RECENT_INSIGHTS);
-          setCustomBlogs([]);
+          setProjects(EMPTY_PROJECTS);
+          setInsights(EMPTY_INSIGHTS);
+          setCustomBlogs(EMPTY_BLOGS);
           await saveAppState(user.uid, {
             userProfile: profile,
-            projects: PROJECTS,
-            insights: RECENT_INSIGHTS,
-            customBlogs: [],
+            projects: EMPTY_PROJECTS,
+            insights: EMPTY_INSIGHTS,
+            customBlogs: EMPTY_BLOGS,
           });
         }}
         onGoogle={async () => {
@@ -2361,7 +2810,7 @@ export default function App() {
             return;
           }
           const user = await signInWithGoogle();
-          const remoteState = await loadAppState(user.uid);
+          const remoteState = withoutSeedData(await loadAppState(user.uid) as Partial<AppSnapshot> | null);
           const profile = remoteState?.userProfile ?? {
             name: user.displayName || "ThinkLoop User",
             avatarId: "1",
@@ -2369,9 +2818,9 @@ export default function App() {
           };
           setAuthUserId(user.uid);
           setUserProfile(profile);
-          setProjects((remoteState?.projects as Project[] | undefined) ?? PROJECTS);
-          setInsights((remoteState?.insights as Insight[] | undefined) ?? RECENT_INSIGHTS);
-          setCustomBlogs((remoteState?.customBlogs as CustomBlog[] | undefined) ?? []);
+          setProjects((remoteState?.projects as Project[] | undefined) ?? EMPTY_PROJECTS);
+          setInsights((remoteState?.insights as Insight[] | undefined) ?? EMPTY_INSIGHTS);
+          setCustomBlogs((remoteState?.customBlogs as CustomBlog[] | undefined) ?? EMPTY_BLOGS);
         }}
       />
     );
@@ -2384,6 +2833,9 @@ export default function App() {
     if (p !== "project-detail" && p !== "write-reflection") {
       setSelectedProject(null);
       setWritingProject(null);
+    }
+    if (p !== "insight-detail") {
+      setSelectedInsight(null);
     }
   };
 
@@ -2458,6 +2910,23 @@ export default function App() {
     );
   };
 
+  const handleDeleteReflection = (projectId: string, reflectionId: string) => {
+    const updateProject = (project: Project) => {
+      const nextReflections = project.reflections.filter((reflection) => reflection.id !== reflectionId);
+      const latestReflection = nextReflections[0]
+        ? nextReflections[0].reflection || nextReflections[0].iDid
+        : "아직 회고가 없습니다.";
+      return { ...project, reflections: nextReflections, latestReflection };
+    };
+
+    setProjects((prev) =>
+      prev.map((project) => (project.id === projectId ? updateProject(project) : project)),
+    );
+    setSelectedProject((prev) =>
+      prev?.id === projectId ? updateProject(prev) : prev,
+    );
+  };
+
   const handleAddBlog = (blog: CustomBlog) => setCustomBlogs((prev) => [...prev, blog]);
 
   const handleSaveInsight = (insight: Omit<Insight, "id" | "date" | "blogStyle">) => {
@@ -2478,6 +2947,33 @@ export default function App() {
     ]);
   };
 
+  const goToInsightDetail = (insight: Insight) => {
+    setSelectedInsight(insights.find((item) => item.id === insight.id) ?? insight);
+    setPage("insight-detail");
+  };
+
+  const handleDeleteInsight = (insightId: string) => {
+    setInsights((prev) => prev.filter((insight) => insight.id !== insightId));
+    setSelectedInsight(null);
+    setPage("insight");
+  };
+
+  const handleLogout = async () => {
+    if (hasFirebaseConfig) {
+      await logOut();
+    }
+    localStorage.removeItem(STORAGE_KEY);
+    setAuthUserId(null);
+    setUserProfile(null);
+    setProjects(EMPTY_PROJECTS);
+    setInsights(EMPTY_INSIGHTS);
+    setCustomBlogs(EMPTY_BLOGS);
+    setSelectedProject(null);
+    setWritingProject(null);
+    setSelectedInsight(null);
+    setPage("home");
+  };
+
   return (
     <div
       className="flex h-screen bg-background overflow-hidden"
@@ -2486,7 +2982,14 @@ export default function App() {
       <Sidebar activePage={page} onNavigate={navigate} profile={userProfile} />
       <main className="flex-1 overflow-y-auto scrollbar-hide">
         {page === "home" && (
-          <HomePage projects={projects} insights={insights} onGoToProject={goToProject} onGoToInsight={() => navigate("insight")} />
+          <HomePage
+            profile={userProfile}
+            projects={projects}
+            insights={insights}
+            onGoToProject={goToProject}
+            onGoToInsight={() => navigate("insight")}
+            onSelectInsight={goToInsightDetail}
+          />
         )}
         {page === "projects" && (
           <ProjectsPage
@@ -2502,6 +3005,14 @@ export default function App() {
             customBlogs={customBlogs}
             onAddBlog={handleAddBlog}
             onSaveInsight={handleSaveInsight}
+            onSelectInsight={goToInsightDetail}
+          />
+        )}
+        {page === "insight-detail" && selectedInsight && (
+          <InsightDetailPage
+            insight={selectedInsight}
+            onBack={() => navigate("insight")}
+            onDelete={handleDeleteInsight}
           />
         )}
         {page === "dashboard" && <DashboardPage projects={projects} insights={insights} />}
@@ -2511,6 +3022,7 @@ export default function App() {
             onBack={() => navigate("projects")}
             onStatusChange={handleStatusChange}
             onWriteReflection={handleWriteReflection}
+            onDeleteReflection={handleDeleteReflection}
           />
         )}
         {page === "write-reflection" && writingProject && (
@@ -2528,6 +3040,7 @@ export default function App() {
             profile={userProfile}
             avatar={selectedAvatar}
             onUpdateProfile={setUserProfile}
+            onLogout={handleLogout}
           />
         )}
       </main>

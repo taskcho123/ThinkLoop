@@ -14,8 +14,10 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    "types": ["vite/client", "react", "react-dom"],
     "jsx": "react-jsx"
   },
-  "include": ["src"],
+  "include": ["src/main.tsx", "src/app/App.tsx", "src/services/**/*.ts", "src/vite-env.d.ts"],
+  "exclude": ["src/app/components"],
   "references": []
 }
