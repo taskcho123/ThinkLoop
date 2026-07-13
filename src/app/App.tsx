@@ -13,6 +13,8 @@ import {
 import { hasFirebaseConfig } from "../services/firebase";
 import { loadAppState, saveAppState } from "../services/appStateRepository";
 import { logOut, signInWithEmail, signInWithGoogle, signUpWithEmail, subscribeToAuthSession } from "../services/authService";
+import { useBlogLogs } from "../hooks/useBlogLogs";
+import { useProjects } from "../hooks/useProjects";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 type Page =
@@ -3048,6 +3050,8 @@ export default function App() {
   const [writingProject, setWritingProject] = useState<Project | null>(null);
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
   const [selectedDevRecord, setSelectedDevRecord] = useState<DevRecord | null>(null);
+  const projectActions = useProjects(setProjects);
+  const blogActions = useBlogLogs(setInsights, setCustomBlogs, setDevRecords);
 
   useEffect(() => {
     if (!hasFirebaseConfig) {
@@ -3241,38 +3245,16 @@ export default function App() {
   };
 
   const handleStatusChange = (projectId: string, status: ProjectStatus) => {
-    const progressByStatus: Record<ProjectStatus, number> = {
-      Planning: 15,
-      Progress: 65,
-      Finished: 100,
-    };
-    setProjects((prev) =>
-      prev.map((p) => (p.id === projectId ? { ...p, status, progress: progressByStatus[status] } : p))
-    );
+    projectActions.updateProjectStatus(projectId, status);
     setSelectedProject((prev) => (prev?.id === projectId ? { ...prev, status } : prev));
   };
 
   const handleCreateProject = (project: Omit<Project, "id" | "createdAt" | "reflections" | "latestReflection" | "progress">) => {
-    const progressByStatus: Record<ProjectStatus, number> = {
-      Planning: 0,
-      Progress: 35,
-      Finished: 100,
-    };
-    setProjects((prev) => [
-      {
-        ...project,
-        id: makeId("project"),
-        progress: progressByStatus[project.status],
-        latestReflection: "아직 회고가 없습니다.",
-        createdAt: todayLabel(),
-        reflections: [],
-      },
-      ...prev,
-    ]);
+    projectActions.createProject(project);
   };
 
   const handleDeleteProject = (projectId: string) => {
-    setProjects((prev) => prev.filter((project) => project.id !== projectId));
+    projectActions.deleteProject(projectId);
     if (selectedProject?.id === projectId) {
       setSelectedProject(null);
       setPage("projects");
@@ -3285,18 +3267,7 @@ export default function App() {
   };
 
   const handleSaveReflection = (projectId: string, fields: Omit<Reflection, "id" | "date">) => {
-    const newRef: Reflection = {
-      id: `r${Date.now()}`,
-      date: todayLabel(),
-      ...fields,
-    };
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === projectId
-          ? { ...p, reflections: [newRef, ...p.reflections], latestReflection: fields.reflection || fields.iDid }
-          : p
-      )
-    );
+    const newRef = projectActions.addReflection(projectId, fields);
     setSelectedProject((prev) =>
       prev?.id === projectId
         ? { ...prev, reflections: [newRef, ...prev.reflections] }
@@ -3313,32 +3284,16 @@ export default function App() {
       return { ...project, reflections: nextReflections, latestReflection };
     };
 
-    setProjects((prev) =>
-      prev.map((project) => (project.id === projectId ? updateProject(project) : project)),
-    );
+    projectActions.deleteReflection(projectId, reflectionId);
     setSelectedProject((prev) =>
       prev?.id === projectId ? updateProject(prev) : prev,
     );
   };
 
-  const handleAddBlog = (blog: CustomBlog) => setCustomBlogs((prev) => [...prev, blog]);
+  const handleAddBlog = (blog: CustomBlog) => blogActions.addBlog(blog);
 
   const handleSaveInsight = (insight: Omit<Insight, "id" | "date" | "blogStyle">) => {
-    const blogStyle = DEFAULT_BLOG_STYLES[insight.blog] ?? "bg-primary text-white";
-    setInsights((prev) => [
-      {
-        ...insight,
-        id: makeId("insight"),
-        blogStyle,
-        date: new Date().toLocaleString("ko-KR", {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      },
-      ...prev,
-    ]);
+    blogActions.saveInsight(insight);
   };
 
   const goToInsightDetail = (insight: Insight) => {
@@ -3347,7 +3302,7 @@ export default function App() {
   };
 
   const handleDeleteInsight = (insightId: string) => {
-    setInsights((prev) => prev.filter((insight) => insight.id !== insightId));
+    blogActions.deleteInsight(insightId);
     setSelectedInsight(null);
     setPage("insight");
   };
@@ -3358,19 +3313,12 @@ export default function App() {
   };
 
   const handleSaveDevRecord = (record: Pick<DevRecord, "title" | "content">) => {
-    setDevRecords((prev) => [
-      {
-        ...record,
-        id: makeId("dev-record"),
-        date: todayLabel(),
-      },
-      ...prev,
-    ]);
+    blogActions.saveDevRecord(record);
     setPage("home");
   };
 
   const handleDeleteDevRecord = (recordId: string) => {
-    setDevRecords((prev) => prev.filter((record) => record.id !== recordId));
+    blogActions.deleteDevRecord(recordId);
     setSelectedDevRecord(null);
     setPage("home");
   };
