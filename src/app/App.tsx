@@ -488,12 +488,14 @@ function NotebookArea({
   icon: Icon,
   value,
   onChange,
+  lined = true,
 }: {
   label: string;
   placeholder: string;
   icon: React.ElementType;
   value: string;
   onChange: (value: string) => void;
+  lined?: boolean;
 }) {
   return (
     <div className="bg-white rounded-xl border border-border p-4 shadow-sm">
@@ -510,12 +512,12 @@ function NotebookArea({
         placeholder={placeholder}
         rows={5}
         className="w-full resize-none bg-transparent text-sm text-foreground placeholder-muted-foreground/50 focus:outline-none leading-[24px]"
-        style={{
+        style={lined ? {
           backgroundImage:
             "repeating-linear-gradient(transparent, transparent 23px, #E5E7EB 23px, #E5E7EB 24px)",
           backgroundSize: "100% 24px",
           backgroundPositionY: "1px",
-        }}
+        } : undefined}
       />
     </div>
   );
@@ -663,7 +665,7 @@ function HomePage({
             <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
               <button
                 onClick={onWriteDevRecord}
-                className="min-w-[170px] sm:min-w-[190px] aspect-[5/3] rounded-xl border border-dashed border-[#B8D9D2] bg-accent/50 p-4 text-left flex flex-col justify-end hover:bg-accent transition-colors"
+                className="min-w-[180px] sm:min-w-[200px] h-[126px] sm:h-[132px] rounded-xl border border-dashed border-[#B8D9D2] bg-accent/50 p-4 text-left flex flex-col justify-end hover:bg-accent transition-colors"
               >
                 <span className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center mb-auto">
                   <Plus className="w-4 h-4" />
@@ -672,7 +674,7 @@ function HomePage({
                 <span className="text-[11px] text-muted-foreground mt-1">오늘의 생각을 자유롭게 남기기</span>
               </button>
               {devRecords.length === 0 ? (
-                <div className="min-w-[210px] sm:min-w-[230px] aspect-[5/3] rounded-xl border border-dashed border-border px-4 py-3 text-xs text-muted-foreground flex items-center">
+                <div className="min-w-[210px] sm:min-w-[230px] h-[126px] sm:h-[132px] rounded-xl border border-dashed border-border px-4 py-3 text-xs text-muted-foreground flex items-center">
                   아직 작성한 개발 기록이 없습니다.
                 </div>
               ) : (
@@ -680,11 +682,31 @@ function HomePage({
                   <button
                     key={record.id}
                     onClick={() => onSelectDevRecord(record)}
-                    className="min-w-[210px] sm:min-w-[230px] aspect-[5/3] text-left rounded-xl border border-border bg-white p-4 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all flex flex-col"
+                    className="min-w-[210px] sm:min-w-[230px] h-[126px] sm:h-[132px] text-left rounded-xl border border-border bg-white p-4 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all flex flex-col overflow-hidden"
                   >
                     <span className="text-[10px] text-muted-foreground mb-2">{record.date}</span>
-                    <span className="text-sm font-semibold text-foreground line-clamp-2">{record.title}</span>
-                    <span className="text-xs text-muted-foreground leading-relaxed line-clamp-3 mt-2">{record.content}</span>
+                    <span
+                      className="text-sm font-semibold text-foreground overflow-hidden"
+                      style={{
+                        display: "-webkit-box",
+                        WebkitLineClamp: 1,
+                        WebkitBoxOrient: "vertical",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {record.title}
+                    </span>
+                    <span
+                      className="text-xs text-muted-foreground leading-relaxed overflow-hidden mt-2"
+                      style={{
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {record.content}
+                    </span>
                   </button>
                 ))
               )}
@@ -1457,6 +1479,7 @@ function WriteDevRecordPage({
           icon={FileText}
           value={content}
           onChange={setContent}
+          lined={false}
         />
       </div>
 
