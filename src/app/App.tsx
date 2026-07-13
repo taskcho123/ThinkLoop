@@ -538,12 +538,12 @@ function HomePage({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-6xl"
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl"
     >
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-4 sm:gap-5 items-start">
         <div className="min-w-0">
           {/* Hero greeting */}
-          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-[#4A7A6A] via-[#5B8E7D] to-[#6BA898] p-8 mb-6 shadow-md shadow-[#5B8E7D]/20">
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-[#4A7A6A] via-[#5B8E7D] to-[#6BA898] p-5 sm:p-8 mb-5 sm:mb-6 shadow-md shadow-[#5B8E7D]/20">
             <div className="absolute inset-0 right-0 pointer-events-none select-none opacity-80">
               <HeroIllustration />
             </div>
@@ -555,7 +555,7 @@ function HomePage({
                 {today}
               </p>
               <h1
-                className="text-[2.25rem] font-bold leading-tight mb-2 text-white"
+                className="text-3xl sm:text-[2.25rem] font-bold leading-tight mb-2 text-white"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 {profile.name}님,
@@ -577,26 +577,26 @@ function HomePage({
           </div>
 
           {/* Quick stats */}
-          <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5 sm:mb-6">
             {[
               { icon: Flame, value: String(dayStreak), label: "연속 기록", color: "text-orange-500", bg: "bg-orange-50" },
               { icon: Folder, value: String(inProgressProjects.length), label: "진행 중인 프로젝트", color: "text-primary", bg: "bg-accent" },
               { icon: FileText, value: String(reflectionCount), label: "작성한 회고", color: "text-emerald-600", bg: "bg-emerald-50" },
             ].map(({ icon: Icon, value, label, color, bg }) => (
-              <div key={label} className="bg-white rounded-xl p-4 border border-border shadow-sm text-center">
+              <div key={label} className="bg-white rounded-xl p-3 sm:p-4 border border-border shadow-sm text-center">
                 <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mx-auto mb-2`}>
                   <Icon className={`w-4 h-4 ${color}`} />
                 </div>
-                <p className="text-2xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+                <p className="text-xl sm:text-2xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
                   {value}
                 </p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">{label}</p>
+                <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-0.5 leading-tight">{label}</p>
               </div>
             ))}
           </div>
 
           {/* Reflection prompt */}
-          <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
+          <div className="bg-white rounded-xl border border-border p-4 sm:p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-2.5">
               <div className="w-6 h-6 rounded-md bg-amber-50 flex items-center justify-center">
                 <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
@@ -618,7 +618,7 @@ function HomePage({
                   <button
                     key={project.id}
                     onClick={() => onGoToProject(project)}
-                    className="min-w-[190px] text-left rounded-xl border border-border bg-white p-3 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all"
+                    className="min-w-[170px] sm:min-w-[190px] text-left rounded-xl border border-border bg-white p-3 shadow-sm hover:border-[#B8D9D2] hover:shadow-md transition-all"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold text-foreground line-clamp-1">{project.name}</span>
@@ -847,15 +847,15 @@ function InsightPage({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-6xl"
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-6xl"
     >
       <SectionHeader title="오늘의 인사이트" sub="아티클을 읽고 배운 것을 정리해보세요." />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-4 sm:gap-5 items-start">
         <div className="min-w-0">
           {/* Blog selector card */}
-          <div className="bg-white rounded-lg border border-border p-5 mb-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-lg border border-border p-4 sm:p-5 mb-4">
+            <div className="flex items-center justify-between gap-3 mb-4">
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-primary" />
                 <span className="text-sm font-semibold text-foreground">Select a Tech Blog</span>
@@ -966,7 +966,7 @@ function InsightPage({
             <button
               onClick={handleSaveInsight}
               disabled={!canSaveInsight}
-              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-[#4A7A6A] transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-[#4A7A6A] transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Sparkles className="w-4 h-4" />
               인사이트 저장
@@ -1153,9 +1153,9 @@ function InsightDetailPage({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-2xl"
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-2xl"
     >
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 mb-5 sm:mb-6">
         <div className="flex items-center gap-2">
           <button
             onClick={onBack}
@@ -1187,21 +1187,21 @@ function InsightDetailPage({
         )}
       </div>
 
-      <div className="bg-white rounded-xl border border-border p-6 shadow-sm mb-5">
+      <div className="bg-white rounded-xl border border-border p-4 sm:p-6 shadow-sm mb-5">
         <div className="flex items-center gap-2 mb-3">
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${insight.blogStyle}`}>
             {insight.blog}
           </span>
           <span className="text-[11px] text-muted-foreground">{insight.date}</span>
         </div>
-        <h2 className="text-xl font-bold text-foreground leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+        <h2 className="text-lg sm:text-xl font-bold text-foreground leading-snug" style={{ fontFamily: "var(--font-display)" }}>
           {insight.title}
         </h2>
       </div>
 
       <div className="space-y-3">
         {sections.map(({ label, value, icon: Icon, tone }) => (
-          <div key={label} className={`bg-white rounded-xl border p-5 shadow-sm ${tone.split(" ")[2]}`}>
+          <div key={label} className={`bg-white rounded-xl border p-4 sm:p-5 shadow-sm ${tone.split(" ")[2]}`}>
             <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold mb-3 ${tone.split(" ").slice(0, 2).join(" ")}`}>
               <Icon className="w-3.5 h-3.5" />
               {label}
@@ -1289,16 +1289,16 @@ function ProjectsPage({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-4xl relative"
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-4xl relative"
     >
-      <div className="flex items-end justify-between mb-7">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-6 sm:mb-7">
         <div>
           <h2 className="text-xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
             Projects
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">{projects.length} workspaces</p>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
           {(["Planning", "Progress", "Finished"] as ProjectStatus[]).map((s) => (
             <span
               key={s}
@@ -1367,7 +1367,7 @@ function ProjectsPage({
       {/* FAB */}
       <button
         onClick={() => setShowAdd(true)}
-        className="fixed bottom-8 right-8 w-12 h-12 bg-primary text-white rounded-full shadow-lg shadow-[#5B8E7D]/25 flex items-center justify-center hover:bg-[#4A7A6A] hover:scale-105 hover:shadow-[#5B8E7D]/40 active:scale-95 transition-all duration-200"
+        className="fixed bottom-24 right-5 md:bottom-8 md:right-8 w-12 h-12 bg-primary text-white rounded-full shadow-lg shadow-[#5B8E7D]/25 flex items-center justify-center hover:bg-[#4A7A6A] hover:scale-105 hover:shadow-[#5B8E7D]/40 active:scale-95 transition-all duration-200"
         title="New project"
       >
         <Plus className="w-5 h-5" />
@@ -1552,18 +1552,18 @@ function ProjectDetailPage({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-2xl"
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-2xl"
     >
       <button
         onClick={onBack}
-        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors group"
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-5 sm:mb-6 transition-colors group"
       >
         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform duration-150" />
         Projects
       </button>
 
       {/* Project header card */}
-      <div className="bg-white rounded-xl border border-border p-6 shadow-sm mb-6">
+      <div className="bg-white rounded-xl border border-border p-4 sm:p-6 shadow-sm mb-5 sm:mb-6">
         <div className="mb-4">
           <h2
             className="text-xl font-bold text-foreground mb-1 leading-snug"
@@ -1583,7 +1583,7 @@ function ProjectDetailPage({
           />
         </div>
 
-        <div className="flex items-center gap-6 pt-4 border-t border-border">
+        <div className="flex items-center gap-5 sm:gap-6 pt-4 border-t border-border">
           <div>
             <p className="text-[11px] text-muted-foreground mb-0.5">작성한 회고</p>
             <p className="text-sm font-bold text-foreground">{project.reflections.length}개</p>
@@ -1598,7 +1598,7 @@ function ProjectDetailPage({
       {/* Write button */}
       <button
         onClick={() => onWriteReflection(project)}
-        className="w-full mb-6 flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl text-sm font-medium hover:bg-[#4A7A6A] active:bg-[#3D6459] transition-colors shadow-sm shadow-[#5B8E7D]/20"
+        className="w-full mb-5 sm:mb-6 flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl text-sm font-medium hover:bg-[#4A7A6A] active:bg-[#3D6459] transition-colors shadow-sm shadow-[#5B8E7D]/20"
       >
         <Plus className="w-4 h-4" />
         오늘의 회고 작성하기
@@ -1628,10 +1628,10 @@ function ProjectDetailPage({
                 initial={{ opacity: 0, x: -6 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.08, duration: 0.22 }}
-                className="relative pl-10"
+                className="relative pl-8 sm:pl-10"
               >
                 <div className="absolute left-[9px] top-[18px] w-[13px] h-[13px] rounded-full bg-white border-2 border-primary shadow-sm" />
-                <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
+                <div className="bg-white rounded-xl border border-border p-4 sm:p-5 shadow-sm">
                   <div className="flex items-center justify-between gap-2 mb-4">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
@@ -1750,19 +1750,19 @@ function WriteReflectionPage({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-2xl"
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-2xl"
     >
       {/* Back */}
       <button
         onClick={onBack}
-        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors group"
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-5 sm:mb-6 transition-colors group"
       >
         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform duration-150" />
         {project.name}
       </button>
 
       {/* Header */}
-      <div className="mb-7">
+      <div className="mb-6 sm:mb-7">
         <div className="flex items-center gap-2 mb-1">
           <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_CONFIG[project.status].bg} ${STATUS_CONFIG[project.status].text}`}>
             {STATUS_STEPS.find(s => s.value === project.status)?.label}
@@ -1782,7 +1782,7 @@ function WriteReflectionPage({
         {sections.map(({ key, label, sub, icon: Icon, accent, tag }) => (
           <div
             key={key}
-            className={`bg-white rounded-xl border-2 ${accent} p-5 shadow-sm transition-colors duration-200`}
+            className={`bg-white rounded-xl border-2 ${accent} p-4 sm:p-5 shadow-sm transition-colors duration-200`}
           >
             <div className="flex items-start gap-3 mb-3">
               <div className={`w-7 h-7 rounded-lg ${tag} flex items-center justify-center flex-shrink-0 mt-0.5`}>
@@ -1813,7 +1813,7 @@ function WriteReflectionPage({
       <div className="flex items-center gap-3 mt-6">
         <button
           onClick={onBack}
-          className="px-5 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+          className="px-4 sm:px-5 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
         >
           취소
         </button>
@@ -1849,19 +1849,19 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-4xl"
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-4xl"
     >
       <SectionHeader title="Dashboard" sub="Your reflection journey at a glance." />
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5 mb-5">
         {stats.map(({ label, value, icon: Icon, color, bg }, i) => (
           <motion.div
             key={label}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.05, duration: 0.2 }}
-            className="bg-white rounded-xl p-4 border border-border shadow-sm"
+            className="bg-white rounded-xl p-3 sm:p-4 border border-border shadow-sm"
           >
             <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mb-3`}>
               <Icon className={`w-4 h-4 ${color}`} />
@@ -1878,8 +1878,8 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
       </div>
 
       {/* Heatmap */}
-      <div className="bg-white rounded-xl border border-border p-5 shadow-sm mb-4">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-xl border border-border p-4 sm:p-5 shadow-sm mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-primary" />
             <span className="text-sm font-semibold text-foreground">Activity</span>
@@ -1899,7 +1899,7 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
       {/* Monthly chart + Recent activity */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4">
         {/* Chart */}
-        <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
+        <div className="bg-white rounded-xl border border-border p-4 sm:p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="w-4 h-4 text-primary" />
             <span className="text-sm font-semibold text-foreground">Monthly Activity</span>
@@ -1969,7 +1969,7 @@ function DashboardPage({ projects, insights }: { projects: Project[]; insights: 
         </div>
 
         {/* Recent activity */}
-        <div className="bg-white rounded-xl border border-border p-5 shadow-sm">
+        <div className="bg-white rounded-xl border border-border p-4 sm:p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
             <Clock className="w-4 h-4 text-primary" />
             <span className="text-sm font-semibold text-foreground">Recent</span>
@@ -2038,13 +2038,13 @@ function SettingsPage({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="p-8 max-w-xl"
+      className="p-4 pb-24 sm:p-6 sm:pb-24 md:p-8 md:pb-8 max-w-xl"
     >
       <SectionHeader title="Settings" sub="계정과 환경설정을 관리합니다." />
 
       {/* Profile card */}
-      <div className="bg-white rounded-xl border border-border p-5 shadow-sm mb-4">
-        <div className="flex items-center gap-4 mb-5">
+      <div className="bg-white rounded-xl border border-border p-4 sm:p-5 shadow-sm mb-4">
+        <div className="flex items-center gap-3 sm:gap-4 mb-5">
           <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${avatar.gradient} flex items-center justify-center text-2xl shadow-sm flex-shrink-0`}>
             {avatar.emoji}
           </div>
@@ -2115,7 +2115,7 @@ function SettingsPage({
       </div>
 
       {/* Account actions */}
-      <div className="bg-white rounded-xl border border-border p-4 shadow-sm flex items-center justify-between">
+      <div className="bg-white rounded-xl border border-border p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <p className="text-xs text-muted-foreground mb-0.5">계정</p>
           <p className="text-sm font-medium text-foreground">현재 계정에서 로그아웃합니다.</p>
@@ -2154,7 +2154,7 @@ function Sidebar({
     (activePage === "insight-detail" && id === "insight");
 
   return (
-    <aside className="w-52 h-screen flex flex-col bg-white border-r border-border flex-shrink-0">
+    <aside className="hidden md:flex w-52 h-screen flex-col bg-white border-r border-border flex-shrink-0">
       {/* Logo */}
       <div className="px-4 py-5 flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shadow-sm shadow-[#5B8E7D]/30">
@@ -2238,6 +2238,51 @@ function Sidebar({
         </button>
       </div>
     </aside>
+  );
+}
+
+function MobileNav({
+  activePage,
+  onNavigate,
+}: {
+  activePage: Page;
+  onNavigate: (p: Page) => void;
+}) {
+  const items = [
+    { id: "home" as Page, label: "홈", icon: Home },
+    { id: "projects" as Page, label: "프로젝트", icon: Folder },
+    { id: "insight" as Page, label: "인사이트", icon: BookOpen },
+    { id: "dashboard" as Page, label: "통계", icon: BarChart2 },
+    { id: "settings" as Page, label: "설정", icon: Settings },
+  ];
+
+  const isActive = (id: Page) =>
+    activePage === id ||
+    (activePage === "project-detail" && id === "projects") ||
+    (activePage === "write-reflection" && id === "projects") ||
+    (activePage === "insight-detail" && id === "insight");
+
+  return (
+    <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/85">
+      <div className="grid grid-cols-5 px-2 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+        {items.map(({ id, label, icon: Icon }) => {
+          const active = isActive(id);
+          return (
+            <button
+              key={id}
+              onClick={() => onNavigate(id)}
+              className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition-colors ${
+                active ? "bg-accent text-primary" : "text-muted-foreground"
+              }`}
+              aria-label={label}
+            >
+              <Icon className="w-4 h-4" />
+              <span className="leading-none">{label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -2700,9 +2745,9 @@ function AuthScreen({
   const [view, setView] = useState<"login" | "signup">("login");
 
   return (
-    <div className="flex h-screen bg-background" style={{ fontFamily: "var(--font-body)" }}>
+    <div className="flex min-h-screen bg-background" style={{ fontFamily: "var(--font-body)" }}>
       <AuthLeftPanel />
-      <div className="flex-1 flex items-center justify-center px-8 py-12 overflow-y-auto scrollbar-hide">
+      <div className="flex-1 flex items-center justify-center px-4 py-8 sm:px-8 sm:py-12 overflow-y-auto scrollbar-hide">
         {view === "login" ? (
           <LoginForm
             onLogin={onLogin}
@@ -2976,7 +3021,7 @@ export default function App() {
 
   return (
     <div
-      className="flex h-screen bg-background overflow-hidden"
+      className="flex h-[100dvh] bg-background overflow-hidden"
       style={{ fontFamily: "var(--font-body)" }}
     >
       <Sidebar activePage={page} onNavigate={navigate} profile={userProfile} />
@@ -3044,6 +3089,7 @@ export default function App() {
           />
         )}
       </main>
+      <MobileNav activePage={page} onNavigate={navigate} />
     </div>
   );
 }
